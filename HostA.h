@@ -87,6 +87,8 @@ class HostA : public ApplicationBase, public UdpSocket::ICallback
      */
 
     virtual Coord getPose();
+    virtual uint64_t convertDouble2Int64(double value);
+    virtual double convertInt642Double(uint64_t value);
 
   public:
     HostA() {}

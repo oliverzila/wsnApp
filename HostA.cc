@@ -76,6 +76,20 @@ Coord HostA::getPose()
     return position;
 }
 
+uint64_t HostA::convertDouble2Int64(double value)
+{
+    uint64_t valueInt;
+    memcpy(&valueInt, &value, sizeof(valueInt));
+    return valueInt;
+}
+
+double HostA::convertInt642Double(uint64_t value)
+{
+    double valueDouble;
+    memcpy(&valueDouble, &value, sizeof(valueDouble));
+    return valueDouble;
+}
+
 void HostA::setSocketOptions()
 {
     int timeToLive = par("timeToLive");
@@ -130,8 +144,8 @@ void HostA::sendPacket()
     const auto& payload = makeShared<WsnPacket>();
     payload->setChunkLength(B(par("messageLength")));
     payload->setSequenceNumber(numSent);
-    payload->setXPosition(getPose().x);
-    payload->setYPosition(getPose().y);
+    payload->setXPosition(convertDouble2Int64(getPose().x));
+    payload->setYPosition(convertDouble2Int64(getPose().y));
     payload->addTag<CreationTimeTag>()->setCreationTime(simTime());
     packet->insertAtBack(payload);
     L3Address destAddr = chooseDestAddr();

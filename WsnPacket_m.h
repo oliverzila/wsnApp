@@ -50,8 +50,8 @@ namespace inet {
  * class WsnPacket extends FieldsChunk
  * {
  *     uint32_t sequenceNumber;
- *     double xPosition = 0;
- *     double yPosition = 0;
+ *     uint64_t xPosition = 0;
+ *     uint64_t yPosition = 0;
  * }
  * </pre>
  */
@@ -59,8 +59,8 @@ class INET_API WsnPacket : public ::inet::FieldsChunk
 {
   protected:
     uint32_t sequenceNumber = 0;
-    double xPosition = 0;
-    double yPosition = 0;
+    uint64_t xPosition = 0;
+    uint64_t yPosition = 0;
 
   private:
     void copy(const WsnPacket& other);
@@ -81,10 +81,10 @@ class INET_API WsnPacket : public ::inet::FieldsChunk
     // field getter/setter methods
     virtual uint32_t getSequenceNumber() const;
     virtual void setSequenceNumber(uint32_t sequenceNumber);
-    virtual double getXPosition() const;
-    virtual void setXPosition(double xPosition);
-    virtual double getYPosition() const;
-    virtual void setYPosition(double yPosition);
+    virtual uint64_t getXPosition() const;
+    virtual void setXPosition(uint64_t xPosition);
+    virtual uint64_t getYPosition() const;
+    virtual void setYPosition(uint64_t yPosition);
 };
 
 inline void doParsimPacking(omnetpp::cCommBuffer *b, const WsnPacket& obj) {obj.parsimPack(b);}

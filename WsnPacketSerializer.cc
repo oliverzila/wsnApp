@@ -24,25 +24,29 @@ Register_Serializer(WsnPacket, WsnPacketSerializer);
 void WsnPacketSerializer::serialize(MemoryOutputStream& stream, const Ptr<const Chunk>& chunk) const
 {
     auto startPosition = stream.getLength();
-    const auto& applicationPacket = staticPtrCast<const WsnPacket>(chunk);
-    stream.writeUint32Be(B(applicationPacket->getChunkLength()).get());
-    stream.writeUint32Be(applicationPacket->getSequenceNumber());
-    int64_t remainders = B(applicationPacket->getChunkLength() - (stream.getLength() - startPosition)).get();
+    const auto& wsnPacket = staticPtrCast<const WsnPacket>(chunk);
+    stream.writeUint32Be(B(wsnPacket->getChunkLength()).get());
+    stream.writeUint32Be(wsnPacket->getSequenceNumber());
+    stream.writeUint64Be(wsnPacket->getXPosition());
+    stream.writeUint64Be(wsnPacket->getYPosition());
+    int64_t remainders = B(wsnPacket->getChunkLength() - (stream.getLength() - startPosition)).get();
     if (remainders < 0)
-        throw cRuntimeError("WsnPacket length = %d smaller than required %d bytes", (int)B(applicationPacket->getChunkLength()).get(), (int)B(stream.getLength() - startPosition).get());
+        throw cRuntimeError("WsnPacket length = %d smaller than required %d bytes", (int)B(wsnPacket->getChunkLength()).get(), (int)B(stream.getLength() - startPosition).get());
     stream.writeByteRepeatedly('?', remainders);
 }
 
 const Ptr<Chunk> WsnPacketSerializer::deserialize(MemoryInputStream& stream) const
 {
     auto startPosition = stream.getPosition();
-    auto applicationPacket = makeShared<WsnPacket>();
+    auto wsnPacket = makeShared<WsnPacket>();
     B dataLength = B(stream.readUint32Be());
-    applicationPacket->setSequenceNumber(stream.readUint32Be());
+    wsnPacket->setSequenceNumber(stream.readUint32Be());
+    wsnPacket->setXPosition(stream.readUint64Be());
+    wsnPacket->setYPosition(stream.readUint64Be());
     B remainders = dataLength - (stream.getPosition() - startPosition);
     ASSERT(remainders >= B(0));
     stream.readByteRepeatedly('?', B(remainders).get());
-    return applicationPacket;
+    return wsnPacket;
 }
 
 } // namespace inet

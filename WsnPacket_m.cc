@@ -264,23 +264,23 @@ void WsnPacket::setSequenceNumber(uint32_t sequenceNumber)
     this->sequenceNumber = sequenceNumber;
 }
 
-double WsnPacket::getXPosition() const
+uint64_t WsnPacket::getXPosition() const
 {
     return this->xPosition;
 }
 
-void WsnPacket::setXPosition(double xPosition)
+void WsnPacket::setXPosition(uint64_t xPosition)
 {
     handleChange();
     this->xPosition = xPosition;
 }
 
-double WsnPacket::getYPosition() const
+uint64_t WsnPacket::getYPosition() const
 {
     return this->yPosition;
 }
 
-void WsnPacket::setYPosition(double yPosition)
+void WsnPacket::setYPosition(uint64_t yPosition)
 {
     handleChange();
     this->yPosition = yPosition;
@@ -411,8 +411,8 @@ const char *WsnPacketDescriptor::getFieldTypeString(int field) const
     }
     static const char *fieldTypeStrings[] = {
         "uint32_t",    // FIELD_sequenceNumber
-        "double",    // FIELD_xPosition
-        "double",    // FIELD_yPosition
+        "uint64_t",    // FIELD_xPosition
+        "uint64_t",    // FIELD_yPosition
     };
     return (field >= 0 && field < 3) ? fieldTypeStrings[field] : nullptr;
 }
@@ -482,8 +482,8 @@ std::string WsnPacketDescriptor::getFieldValueAsString(void *object, int field, 
     WsnPacket *pp = (WsnPacket *)object; (void)pp;
     switch (field) {
         case FIELD_sequenceNumber: return ulong2string(pp->getSequenceNumber());
-        case FIELD_xPosition: return double2string(pp->getXPosition());
-        case FIELD_yPosition: return double2string(pp->getYPosition());
+        case FIELD_xPosition: return uint642string(pp->getXPosition());
+        case FIELD_yPosition: return uint642string(pp->getYPosition());
         default: return "";
     }
 }
@@ -499,8 +499,8 @@ bool WsnPacketDescriptor::setFieldValueAsString(void *object, int field, int i, 
     WsnPacket *pp = (WsnPacket *)object; (void)pp;
     switch (field) {
         case FIELD_sequenceNumber: pp->setSequenceNumber(string2ulong(value)); return true;
-        case FIELD_xPosition: pp->setXPosition(string2double(value)); return true;
-        case FIELD_yPosition: pp->setYPosition(string2double(value)); return true;
+        case FIELD_xPosition: pp->setXPosition(string2uint64(value)); return true;
+        case FIELD_yPosition: pp->setYPosition(string2uint64(value)); return true;
         default: return false;
     }
 }

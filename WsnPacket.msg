@@ -27,6 +27,6 @@ namespace inet;
 class WsnPacket extends FieldsChunk
 {
     uint32_t sequenceNumber;
-    double xPosition = 0;
-    double yPosition = 0;
+    uint64_t xPosition = 0;
+    uint64_t yPosition = 0;
 }
