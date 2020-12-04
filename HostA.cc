@@ -27,6 +27,9 @@
 #include "inet/networklayer/common/L3AddressResolver.h"
 #include "inet/transportlayer/contract/udp/UdpControlInfo_m.h"
 
+#include "inet/physicallayer/contract/packetlevel/RadioControlInfo_m.h"
+#include "inet/networklayer/base/NetworkProtocolBase.h"
+
 namespace inet {
 
 Define_Module(HostA);
@@ -57,7 +60,17 @@ void HostA::initialize(int stage)
         selfMsg = new cMessage("sendTimer");
     }
 
+    // Channel allocation part
+    // TODO check all values to the corresponding protocol
+
+    protocolFrameLength = 10^-3; // The frame duration in seconds
+    bandwidth = 10^6; // The channel bandwidth
+    gain = 10^(14/10); // Antenna gain converted
+    efficiency = 0.87;
+    fps = 1/protocolFrameLength;
+
     EV << "Host " << getName() << " initialized at position x: " << getPose().x << ", y:" << getPose().y << "\n";
+
 }
 
 void HostA::finish()
@@ -261,6 +274,7 @@ void HostA::processPacket(Packet *pk)
 {
     emit(packetReceivedSignal, pk);
     EV_INFO << "Received packet: " << UdpSocket::getReceivedPacketInfo(pk) << endl;
+    EV << "AAAAAAAAAAAAAAAAAAAAAAA" << endl;
     delete pk;
     numReceived++;
 }

@@ -80,11 +80,15 @@ class HostA : public ApplicationBase, public UdpSocket::ICallback
     virtual void socketErrorArrived(UdpSocket *socket, Indication *indication) override;
     virtual void socketClosed(UdpSocket *socket) override;
 
-    // new Functions
+    // new Functions and variables
 
-    /**
-     * Gets the host position
-     */
+  protected:
+    uint32_t protocolFrameLength; // The frame duration in seconds
+    uint32_t bandwidth; // The channel bandwidth
+    double gain; // Antenna gain converted
+    double efficiency;
+    double fps;
+
 
     virtual Coord getPose();
     virtual uint64_t convertDouble2Int64(double value);
