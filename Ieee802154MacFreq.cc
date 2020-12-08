@@ -129,7 +129,7 @@ void Ieee802154MacFreq::initialize(int stage)
         }
         radio->setRadioMode(IRadio::RADIO_MODE_RECEIVER);
 
-        // Change center frequency test
+        // Change center frequency to initial channel
         cMessage *msg = new cMessage;
         msg->setKind(RADIO_C_CONFIGURE);
 
@@ -143,11 +143,12 @@ void Ieee802154MacFreq::initialize(int stage)
         EV << "Initializing at radio frequency:" << frequencyRadio << ", channel: "
                 << frequencyChannel << endl;
 
-        freqTimer = new cMessage("timer-Freq"); //timer to start the frequency choice phase
+        freqTimer = new cMessage("timer-startFreq"); //timer to start the frequency choice phase
+        EV_DETAIL << "Scheduling new freqTimer message named: " << freqTimer->getName() << endl;
         scheduleAt(simTime() + macFreqInitWaitDuration, freqTimer);
 
         bWasFreq = false;
-        // End of Change center frequency test
+        // End of Change center frequency to initial channel
 
         EV_DETAIL << " bitrate = " << bitrate
                   << " backoff method = " << par("backoffMethod").stringValue() << endl;
@@ -182,6 +183,8 @@ void Ieee802154MacFreq::freqInitialize()
     freqMessage->addTag<PacketProtocolTag>()->setProtocol(&Protocol::ieee802154);
     EV_DETAIL << "pkt with frequency encapsulated, length: " << csmaHeader->getChunkLength() << "\n";
     executeMac(EV_SEND_REQUEST, freqMessage);
+
+
 }
 
 void Ieee802154MacFreq::finish()
@@ -864,7 +867,11 @@ void Ieee802154MacFreq::handleSelfMessage(cMessage *msg)
         executeMac(EV_ACK_TIMEOUT, msg);
     }
     else if (msg == freqTimer) {
-        freqInitialize();
+        EV_DETAIL << "freqTimer message arrived named: " << freqTimer->getName() << endl;
+        if (strcmp(freqTimer->getName(), "timer-startFreq")==0){
+            EV_DETAIL << "Handling timer-startFreq msg" << endl;
+            freqInitialize();
+        }
     }
     else
         EV << "CSMA Error: unknown timer fired:" << msg << endl;
@@ -996,10 +1003,10 @@ void Ieee802154MacFreq::decapsulate(Packet *packet)
     packet->addTagIfAbsent<InterfaceInd>()->setInterfaceId(interfaceEntry->getInterfaceId());
     EV_DETAIL << "DECAPSULANDO MSG PT1" << endl;
     auto protocol = ProtocolGroup::ethertype.findProtocol(csmaHeader->getNetworkProtocol());
-    if (protocol == nullptr){
-        EV_DETAIL << "DECAPSULANDO MSG PT2 if" << endl;
+    if (strcmp(packet->getName(),"freqMsg")==0){  // Message name: freqMsg
         executeMac(EV_FREQ_MSG, packet);
         auto data = packet->peekAt(b(csmaHeader->getChunkLength()), b(8));
+        EV_DETAIL << "DECAPSULANDO MSG PT2 if" << endl;
         EV_DETAIL << "Data field of FREQ_MSG: " << data << endl;
         return;
     }else{
