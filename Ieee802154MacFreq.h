@@ -67,6 +67,7 @@ class INET_API Ieee802154MacFreq : public MacProtocolBase, public IMacProtocol
         , transmissionState(physicallayer::IRadio::TRANSMISSION_STATE_UNDEFINED)
         , sifs()
         , macAckWaitDuration()
+        , macFreqInitWaitDuration()
         , headerLength(0)
         , transmissionAttemptInterruptedByRx(false)
         , ccaDetectionTime()
@@ -148,11 +149,12 @@ class INET_API Ieee802154MacFreq : public MacProtocolBase, public IMacProtocol
         TIMER_CCA,
         TIMER_SIFS,
         TIMER_RX_ACK,
+        TIMER_FREQ
     };
 
     /** @name Pointer for timer messages.*/
     /*@{*/
-    cMessage *backoffTimer, *ccaTimer, *sifsTimer, *rxAckTimer;
+    cMessage *backoffTimer, *ccaTimer, *sifsTimer, *rxAckTimer, *freqTimer;
     /*@}*/
 
     /** @brief MAC state machine events.
@@ -167,7 +169,8 @@ class INET_API Ieee802154MacFreq : public MacProtocolBase, public IMacProtocol
         EV_DUPLICATE_RECEIVED,
         EV_TIMER_SIFS,    // 17
         EV_BROADCAST_RECEIVED,    // 23, 24
-        EV_TIMER_CCA
+        EV_TIMER_CCA,
+        EV_FREQ_MSG
     };
 
     /** @brief Types for frames sent by the CSMA.*/
@@ -219,8 +222,17 @@ class INET_API Ieee802154MacFreq : public MacProtocolBase, public IMacProtocol
     /** @brief The amount of time the MAC waits for the ACK of a packet.*/
     simtime_t macAckWaitDuration;
 
+    /** @brief The amount of time the MAC waits for Frequency Selection to initialize.  */
+    simtime_t macFreqInitWaitDuration;
+
     /** @brief Length of the header*/
     int headerLength;
+
+    /** @brief The frequency channel of the device radio.  */
+    uint8_t frequencyChannel;
+
+    /** @brief The frequency of the device radio     */
+    unsigned int frequencyRadio;
 
     bool transmissionAttemptInterruptedByRx;
     /** @brief CCA detection time */
@@ -274,6 +286,12 @@ class INET_API Ieee802154MacFreq : public MacProtocolBase, public IMacProtocol
     /** @brief The bit length of the ACK packet.*/
     int ackLength;
 
+    /** @brief The bit length of the Frequency packet.*/
+    int freqLength;
+
+    /** @brief stores if last broadcast msg was freq msg. */
+    bool bWasFreq;
+
   protected:
     /** @brief Generate new interface address*/
     virtual void configureInterfaceEntry() override;
@@ -301,10 +319,14 @@ class INET_API Ieee802154MacFreq : public MacProtocolBase, public IMacProtocol
 
     virtual void decapsulate(Packet *packet);
 
+    void freqInitialize();
+
+    Packet *freqMessage;
+
     Packet *ackMessage;
 
     //sequence number for sending, map for the general case with more senders
-    //also in initialisation phase multiple potential parents
+    //also in initialization phase multiple potential parents
     std::map<MacAddress, unsigned long> SeqNrParent;    //parent -> sequence number
 
     //sequence numbers for receiving

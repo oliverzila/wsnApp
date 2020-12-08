@@ -49,7 +49,6 @@ Define_Module(Ieee802154MacFreq);
 void Ieee802154MacFreq::initialize(int stage)
 {
     MacProtocolBase::initialize(stage);
-    EV << "AAAAAAA - MACFREQ" << endl;
     if (stage == INITSTAGE_LOCAL) {
         useMACAcks = par("useMACAcks");
         sifs = par("sifs");
@@ -67,6 +66,7 @@ void Ieee802154MacFreq::initialize(int stage)
         macMaxCSMABackoffs = par("macMaxCSMABackoffs");
         macMaxFrameRetries = par("macMaxFrameRetries");
         macAckWaitDuration = par("macAckWaitDuration");
+        macFreqInitWaitDuration = par("macFreqInitWaitDuration");
         aUnitBackoffPeriod = par("aUnitBackoffPeriod");
         ccaDetectionTime = par("ccaDetectionTime");
         rxSetupTime = par("rxSetupTime");
@@ -74,6 +74,8 @@ void Ieee802154MacFreq::initialize(int stage)
         bitrate = par("bitrate");
         ackLength = par("ackLength");
         ackMessage = nullptr;
+        freqLength = par("headerLength"); //TODO make a param for this
+        freqMessage = nullptr;
 
         //init parameters for backoff method
         std::string backoffMethodStr = par("backoffMethod").stdstringValue();
@@ -132,11 +134,19 @@ void Ieee802154MacFreq::initialize(int stage)
         msg->setKind(RADIO_C_CONFIGURE);
 
         ConfigureRadioCommand *newConfigureCommand = new ConfigureRadioCommand();
-        newConfigureCommand->setCenterFrequency(MHz(2480));
+        frequencyChannel = 26;
+        frequencyRadio = 2405 + 5 * (frequencyChannel -11); // For channel from 11 to 26
+        newConfigureCommand->setCenterFrequency(MHz(frequencyRadio));
         msg->setControlInfo(newConfigureCommand);
         sendDown(msg);
 
-        EV << "Sera que mudou a frequencia para 2425" << endl;
+        EV << "Initializing at radio frequency:" << frequencyRadio << ", channel: "
+                << frequencyChannel << endl;
+
+        freqTimer = new cMessage("timer-Freq"); //timer to start the frequency choice phase
+        scheduleAt(simTime() + macFreqInitWaitDuration, freqTimer);
+
+        bWasFreq = false;
         // End of Change center frequency test
 
         EV_DETAIL << " bitrate = " << bitrate
@@ -144,6 +154,34 @@ void Ieee802154MacFreq::initialize(int stage)
 
         EV_DETAIL << "finished csma init stage 1." << endl;
     }
+}
+
+void Ieee802154MacFreq::freqInitialize()
+{
+    if (freqMessage != nullptr)
+        delete freqMessage;
+    auto csmaHeader = makeShared<Ieee802154MacHeader>();
+    csmaHeader->setChunkLength(b(freqLength));
+
+    MacAddress dest = MacAddress::BROADCAST_ADDRESS;
+    EV_DETAIL << "Broadcasting test message" << endl;
+
+    auto data = makeShared<ByteCountChunk>(B(1), frequencyChannel);
+
+    csmaHeader->setNetworkProtocol(Protocol::ieee802154.getId());
+    EV_DETAIL << "Network protocol config to: " << Protocol::ieee802154.getId() << endl;
+    csmaHeader->setDestAddr(dest);
+    csmaHeader->setSrcAddr(interfaceEntry->getMacAddress());
+    csmaHeader->setSequenceId(SeqNrParent[dest]);
+
+    EV_DETAIL << "Packet send with sequence number = " << SeqNrParent[dest] << endl;
+    SeqNrParent[dest]++;
+    freqMessage = new Packet("FREQ-MSG", data);
+    freqMessage->setName("freqMsg");
+    freqMessage->insertAtFront(csmaHeader);
+    freqMessage->addTag<PacketProtocolTag>()->setProtocol(&Protocol::ieee802154);
+    EV_DETAIL << "pkt with frequency encapsulated, length: " << csmaHeader->getChunkLength() << "\n";
+    executeMac(EV_SEND_REQUEST, freqMessage);
 }
 
 void Ieee802154MacFreq::finish()
@@ -171,8 +209,11 @@ Ieee802154MacFreq::~Ieee802154MacFreq()
     cancelAndDelete(ccaTimer);
     cancelAndDelete(sifsTimer);
     cancelAndDelete(rxAckTimer);
+    cancelAndDelete(freqTimer);
     if (ackMessage)
         delete ackMessage;
+    if (freqMessage)
+        delete freqMessage;
 }
 
 void Ieee802154MacFreq::configureInterfaceEntry()
@@ -269,14 +310,20 @@ void Ieee802154MacFreq::updateStatusIdle(t_mac_event event, cMessage *msg)
                 startTimer(TIMER_SIFS);
             }
             break;
-
+        case EV_FREQ_MSG:
+            EV_DETAIL << "At: EV_FREQ_MSG" << endl;
+            bWasFreq = true;
+            delete msg;
+            break;
         case EV_BROADCAST_RECEIVED:
             EV_DETAIL << "(23) FSM State IDLE_1, EV_BROADCAST_RECEIVED: Nothing to do." << endl;
             nbRxFrames++;
             decapsulate(check_and_cast<Packet *>(msg));
-            sendUp(msg);
+            if(!bWasFreq)
+                sendUp(msg);
+            else
+                bWasFreq = false;
             break;
-
         default:
             fsmError(event, msg);
             break;
@@ -335,14 +382,20 @@ void Ieee802154MacFreq::updateStatusBackoff(t_mac_event event, cMessage *msg)
             decapsulate(check_and_cast<Packet *>(msg));
             sendUp(msg);
             break;
-
+        case EV_FREQ_MSG:
+            EV_DETAIL << "At: EV_FREQ_MSG" << endl;
+            bWasFreq = true;
+            delete msg;
+            break;
         case EV_BROADCAST_RECEIVED:
             EV_DETAIL << "(29) FSM State BACKOFF, EV_BROADCAST_RECEIVED:"
                       << "sending frame up and resuming normal operation." << endl;
             decapsulate(check_and_cast<Packet *>(msg));
-            sendUp(msg);
+            if(!bWasFreq)
+                sendUp(msg);
+            else
+                bWasFreq = false;
             break;
-
         default:
             fsmError(event, msg);
             break;
@@ -448,14 +501,20 @@ void Ieee802154MacFreq::updateStatusCCA(t_mac_event event, cMessage *msg)
             decapsulate(check_and_cast<Packet *>(msg));
             sendUp(msg);
             break;
-
+        case EV_FREQ_MSG:
+            EV_DETAIL << "At: EV_FREQ_MSG" << endl;
+            bWasFreq = true;
+            delete msg;
+            break;
         case EV_BROADCAST_RECEIVED:
             EV_DETAIL << "(24) FSM State BACKOFF, EV_BROADCAST_RECEIVED:"
                       << " Nothing to do." << endl;
             decapsulate(check_and_cast<Packet *>(msg));
-            sendUp(msg);
+            if(!bWasFreq)
+                sendUp(msg);
+            else
+                bWasFreq = false;
             break;
-
         default:
             fsmError(event, msg);
             break;
@@ -521,18 +580,24 @@ void Ieee802154MacFreq::updateStatusWaitAck(t_mac_event event, cMessage *msg)
                       << " incrementCounter/dropPacket, manageQueue..." << endl;
             manageMissingAck(event, msg);
             break;
-
+        case EV_FREQ_MSG:
+            EV_DETAIL << "At: EV_FREQ_MSG" << endl;
+            bWasFreq = true;
+            delete msg;
+            break;
         case EV_BROADCAST_RECEIVED:
         case EV_FRAME_RECEIVED:
             decapsulate(check_and_cast<Packet *>(msg));
-            sendUp(msg);
+            if(!bWasFreq)
+                sendUp(msg);
+            else
+                bWasFreq = false;
             break;
 
         case EV_DUPLICATE_RECEIVED:
             EV_DETAIL << "Error ! Received a frame during SIFS !" << endl;
             delete msg;
             break;
-
         default:
             fsmError(event, msg);
             break;
@@ -583,12 +648,19 @@ void Ieee802154MacFreq::updateStatusSIFS(t_mac_event event, cMessage *msg)
                       << "Restart backoff timer and don't move." << endl;
             startTimer(TIMER_BACKOFF);
             break;
-
+        case EV_FREQ_MSG:
+            EV_DETAIL << "At: EV_FREQ_MSG" << endl;
+            bWasFreq = true;
+            delete msg;
+            break;
         case EV_BROADCAST_RECEIVED:
         case EV_FRAME_RECEIVED:
             EV << "Error ! Received a frame during SIFS !" << endl;
             decapsulate(check_and_cast<Packet *>(msg));
-            sendUp(msg);
+            if(!bWasFreq)
+                sendUp(msg);
+            else
+                bWasFreq = false;
             break;
 
         default:
@@ -791,6 +863,9 @@ void Ieee802154MacFreq::handleSelfMessage(cMessage *msg)
         nbMissedAcks++;
         executeMac(EV_ACK_TIMEOUT, msg);
     }
+    else if (msg == freqTimer) {
+        freqInitialize();
+    }
     else
         EV << "CSMA Error: unknown timer fired:" << msg << endl;
 }
@@ -919,9 +994,22 @@ void Ieee802154MacFreq::decapsulate(Packet *packet)
     const auto& csmaHeader = packet->popAtFront<Ieee802154MacHeader>();
     packet->addTagIfAbsent<MacAddressInd>()->setSrcAddress(csmaHeader->getSrcAddr());
     packet->addTagIfAbsent<InterfaceInd>()->setInterfaceId(interfaceEntry->getInterfaceId());
-    auto payloadProtocol = ProtocolGroup::ethertype.getProtocol(csmaHeader->getNetworkProtocol());
-    packet->addTagIfAbsent<DispatchProtocolReq>()->setProtocol(payloadProtocol);
-    packet->addTagIfAbsent<PacketProtocolTag>()->setProtocol(payloadProtocol);
+    EV_DETAIL << "DECAPSULANDO MSG PT1" << endl;
+    auto protocol = ProtocolGroup::ethertype.findProtocol(csmaHeader->getNetworkProtocol());
+    if (protocol == nullptr){
+        EV_DETAIL << "DECAPSULANDO MSG PT2 if" << endl;
+        executeMac(EV_FREQ_MSG, packet);
+        auto data = packet->peekAt(b(csmaHeader->getChunkLength()), b(8));
+        EV_DETAIL << "Data field of FREQ_MSG: " << data << endl;
+        return;
+    }else{
+        EV_DETAIL << "DECAPSULANDO MSG P2 else" << endl;
+        auto payloadProtocol = ProtocolGroup::ethertype.getProtocol(csmaHeader->getNetworkProtocol());
+        EV_DETAIL << "O network protocol usado" << csmaHeader->getNetworkProtocol() << endl;
+        packet->addTagIfAbsent<DispatchProtocolReq>()->setProtocol(payloadProtocol);
+        packet->addTagIfAbsent<PacketProtocolTag>()->setProtocol(payloadProtocol);
+    }
+    EV_DETAIL << "DECAPSULANDO MSG FINAL" << endl;
 }
 
 } // namespace inet

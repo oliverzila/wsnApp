@@ -165,6 +165,9 @@ void HostA::sendPacket()
     emit(packetSentSignal, packet);
     socket.sendTo(packet, destAddr, destPort);
     numSent++;
+    char text[32];
+    sprintf(text, "Already sent: %d msgs", numSent);
+    bubble(text);
 }
 
 void HostA::processStart()
@@ -277,6 +280,10 @@ void HostA::processPacket(Packet *pk)
     EV << "AAAAAAAAAAAAAAAAAAAAAAA" << endl;
     delete pk;
     numReceived++;
+    char text[32];
+    sprintf(text, "Already received: %d msgs", numReceived);
+    bubble(text);
+    refreshDisplay();
 }
 
 void HostA::handleStartOperation(LifecycleOperation *operation)

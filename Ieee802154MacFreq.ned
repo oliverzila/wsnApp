@@ -76,6 +76,9 @@ module Ieee802154MacFreq extends MacProtocolBase like IMacProtocol
         // Should be bigger than the maximum time for switching between Tx and Rx at the receiver.
         // Only used when usage of MAC acks is enabled.
         double sifs @unit(s) = default(0.000192 s);
+        
+        // Time to wait before initializing frequency selection
+        double macFreqInitWaitDuration @unit(s) = default(0.0005 s);
 
         //Backoff method to use: constant, linear or exponential
         string backoffMethod = default("linear");
