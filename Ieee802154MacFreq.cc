@@ -146,7 +146,9 @@ void Ieee802154MacFreq::initialize(int stage)
 
         freqTimer = new cMessage("timer-startFreq"); //timer to start the frequency choice phase
         EV_DETAIL << "Scheduling new freqTimer message named: " << freqTimer->getName() << endl;
-        scheduleAt(simTime() + uniform(macFreqInitWaitDuration,macFreqInitWaitDuration+macFreqInitWaitDuration/2), freqTimer);
+        scheduleAt(simTime() + uniform(macFreqInitWaitDuration/4,macFreqInitWaitDuration*2), freqTimer);
+        // notice that if the interval for the schedules is to small many try to send at the same time
+        // resulting in not all the hosts being heard (? is that a problem for a dense network ?)
 
         bWasFreq = false;
         // End of Change center frequency to initial channel
@@ -187,7 +189,8 @@ void Ieee802154MacFreq::freqInitialize()
     freqMessage->insertAtFront(csmaHeader);
     freqMessage->insertAtBack(payload);
     freqMessage->addTag<PacketProtocolTag>()->setProtocol(&Protocol::ieee802154);
-    EV_DETAIL << "pkt with frequency encapsulated, length: " << csmaHeader->getChunkLength() << "\n";
+    EV_DETAIL << "pkt with frequency encapsulated, length: " << freqMessage->getTotalLength() << "\n";
+    EV_INFO << "srcAddr: " << csmaHeader->getSrcAddr() << " and channel: " << (int)frequencyChannel << endl;
     executeMac(EV_SEND_REQUEST, freqMessage);
 
 }
@@ -1018,7 +1021,7 @@ void Ieee802154MacFreq::addNeighborInfo(Packet *packet)
     const auto& payload = packet->popAtBack<FrequencyPacket>(B(1));
     uint8_t freq = payload->getFreqChannel();
 
-    EV_DETAIL << "DECAPSULANDO MSG PT2 if" << endl;
+    EV_DETAIL << "Device: " << getName() << " DECAPSULANDO MSG PT2 if" << endl;
     EV_DETAIL << "Data field of FREQ_MSG: " << (int)freq << endl;
     EV_DETAIL << "SrcAddr field of FREQ_MSG: " << macAddr << endl;
     NeighborInfo addNeighborInfo;
