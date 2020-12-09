@@ -146,7 +146,8 @@ void Ieee802154MacFreq::initialize(int stage)
 
         freqTimer = new cMessage("timer-startFreq"); //timer to start the frequency choice phase
         EV_DETAIL << "Scheduling new freqTimer message named: " << freqTimer->getName() << endl;
-        scheduleAt(simTime() + uniform(macFreqInitWaitDuration/4,macFreqInitWaitDuration*2), freqTimer);
+        startTimer(TIMER_FREQ);
+        //scheduleAt(simTime() + uniform(macFreqInitWaitDuration/4,macFreqInitWaitDuration*2), freqTimer);
         // notice that if the interval for the schedules is to small many try to send at the same time
         // resulting in not all the hosts being heard (? is that a problem for a dense network ?)
 
@@ -261,6 +262,21 @@ void Ieee802154MacFreq::handleUpperPacket(Packet *packet)
     macPkt->setChunkLength(b(headerLength));
     MacAddress dest = packet->getTag<MacAddressReq>()->getDestAddress();
     EV_DETAIL << "CSMA received a message from upper layer, name is " << packet->getName() << ", CInfo removed, mac addr=" << dest << endl;
+
+    // look up for the channel
+    for (auto it = neighbourList.begin(); it != neighbourList.end(); it++){
+        EV_DETAIL << "HandleUpperPacket - Looking for mac address in neighbors list" << endl;
+        if(it->macAddr == dest){
+            EV_DETAIL << "Found the dest device - Setting up radio channel" << endl;
+            destinationFrequencyChannel = it-> frequencyChannel;
+            // call function to change the channel
+        }else{
+            // should this happen? seems like a problem
+        }
+    }
+
+    //
+
     macPkt->setNetworkProtocol(ProtocolGroup::ethertype.getProtocolNumber(packet->getTag<PacketProtocolTag>()->getProtocol()));
     macPkt->setDestAddr(dest);
     delete packet->removeControlInfo();
@@ -815,8 +831,10 @@ void Ieee802154MacFreq::startTimer(t_mac_timer timer)
         assert(useMACAcks);
         EV_DETAIL << "(startTimer) rxAckTimer value=" << macAckWaitDuration << endl;
         scheduleAt(simTime() + macAckWaitDuration, rxAckTimer);
+    }else if (timer == TIMER_FREQ) {
+        scheduleAt(simTime() + uniform(macFreqInitWaitDuration/4,macFreqInitWaitDuration*2), freqTimer);
     }
-    else {
+    else{
         EV << "Unknown timer requested to start:" << timer << endl;
     }
 }
