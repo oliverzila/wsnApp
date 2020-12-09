@@ -234,6 +234,12 @@ class INET_API Ieee802154MacFreq : public MacProtocolBase, public IMacProtocol
     /** @brief The frequency of the device radio     */
     unsigned int frequencyRadio;
 
+    /** @brief The frequency channel of the destination radio.  */
+    uint8_t destinationFrequencyChannel;
+
+    /** @brief The frequency of the destination radio     */
+    unsigned int destinationFrequencyRadio;
+
     bool transmissionAttemptInterruptedByRx;
     /** @brief CCA detection time */
     simtime_t ccaDetectionTime;
