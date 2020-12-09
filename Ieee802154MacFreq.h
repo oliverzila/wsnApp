@@ -320,10 +320,23 @@ class INET_API Ieee802154MacFreq : public MacProtocolBase, public IMacProtocol
     virtual void decapsulate(Packet *packet);
 
     void freqInitialize();
+    void freqAllocationInit();
+
+    void addNeighborInfo(Packet *packet);
 
     Packet *freqMessage;
 
     Packet *ackMessage;
+
+    /**@brief the struct with neighbor information  */
+    struct NeighborInfo
+    {
+        MacAddress macAddr;
+        uint8_t frequencyChannel;
+        // perhaps adding the time_stamp of the last message
+    };
+
+    std::vector<NeighborInfo> neighbourList;
 
     //sequence number for sending, map for the general case with more senders
     //also in initialization phase multiple potential parents

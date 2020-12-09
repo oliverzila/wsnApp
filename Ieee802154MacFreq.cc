@@ -38,6 +38,7 @@
 #include "inet/linklayer/ieee802154/Ieee802154MacHeader_m.h"
 #include "inet/networklayer/common/InterfaceEntry.h"
 
+#include "inet/applications/wsnApp/FrequencyPacket_m.h"
 #include "inet/physicallayer/contract/packetlevel/RadioControlInfo_m.h"
 
 namespace inet {
@@ -141,11 +142,11 @@ void Ieee802154MacFreq::initialize(int stage)
         sendDown(msg);
 
         EV << "Initializing at radio frequency:" << frequencyRadio << ", channel: "
-                << frequencyChannel << endl;
+                << (int)frequencyChannel << endl;
 
         freqTimer = new cMessage("timer-startFreq"); //timer to start the frequency choice phase
         EV_DETAIL << "Scheduling new freqTimer message named: " << freqTimer->getName() << endl;
-        scheduleAt(simTime() + macFreqInitWaitDuration, freqTimer);
+        scheduleAt(simTime() + uniform(macFreqInitWaitDuration,macFreqInitWaitDuration+macFreqInitWaitDuration/2), freqTimer);
 
         bWasFreq = false;
         // End of Change center frequency to initial channel
@@ -159,6 +160,7 @@ void Ieee802154MacFreq::initialize(int stage)
 
 void Ieee802154MacFreq::freqInitialize()
 {
+    // generates a channel number and broadcast it to the other devices
     if (freqMessage != nullptr)
         delete freqMessage;
     auto csmaHeader = makeShared<Ieee802154MacHeader>();
@@ -167,8 +169,11 @@ void Ieee802154MacFreq::freqInitialize()
     MacAddress dest = MacAddress::BROADCAST_ADDRESS;
     EV_DETAIL << "Broadcasting test message" << endl;
 
-    auto data = makeShared<ByteCountChunk>(B(1), frequencyChannel);
-
+    frequencyChannel = intuniform(11,26);
+    //auto data = makeShared<ByteCountChunk>(B(1), frequencyChannel);
+    const auto& payload = makeShared<FrequencyPacket>();
+    payload->setChunkLength(B(1)); // TODO this could be a parameter? alwyas check if FrequencyPacket was changed
+    payload->setFreqChannel(frequencyChannel);
     csmaHeader->setNetworkProtocol(Protocol::ieee802154.getId());
     EV_DETAIL << "Network protocol config to: " << Protocol::ieee802154.getId() << endl;
     csmaHeader->setDestAddr(dest);
@@ -177,13 +182,18 @@ void Ieee802154MacFreq::freqInitialize()
 
     EV_DETAIL << "Packet send with sequence number = " << SeqNrParent[dest] << endl;
     SeqNrParent[dest]++;
-    freqMessage = new Packet("FREQ-MSG", data);
+    freqMessage = new Packet("FREQ-MSG");
     freqMessage->setName("freqMsg");
     freqMessage->insertAtFront(csmaHeader);
+    freqMessage->insertAtBack(payload);
     freqMessage->addTag<PacketProtocolTag>()->setProtocol(&Protocol::ieee802154);
     EV_DETAIL << "pkt with frequency encapsulated, length: " << csmaHeader->getChunkLength() << "\n";
     executeMac(EV_SEND_REQUEST, freqMessage);
 
+}
+
+void Ieee802154MacFreq::freqAllocationInit()
+{
 
 }
 
@@ -871,6 +881,8 @@ void Ieee802154MacFreq::handleSelfMessage(cMessage *msg)
         if (strcmp(freqTimer->getName(), "timer-startFreq")==0){
             EV_DETAIL << "Handling timer-startFreq msg" << endl;
             freqInitialize();
+        }else if (strcmp(freqTimer->getName(), "timer-startAlloc")==0){
+            freqAllocationInit();
         }
     }
     else
@@ -996,20 +1008,37 @@ void Ieee802154MacFreq::receiveSignal(cComponent *source, simsignal_t signalID, 
     }
 }
 
+void Ieee802154MacFreq::addNeighborInfo(Packet *packet)
+{
+    // TODO check mac address, if already exists update channel only
+    const auto& csmaHeader = packet->popAtFront<Ieee802154MacHeader>();
+    auto macAddr = csmaHeader->getSrcAddr();
+    // auto data = packet->peekAt(b(csmaHeader->getChunkLength()), b(8));
+
+    const auto& payload = packet->popAtBack<FrequencyPacket>(B(1));
+    uint8_t freq = payload->getFreqChannel();
+
+    EV_DETAIL << "DECAPSULANDO MSG PT2 if" << endl;
+    EV_DETAIL << "Data field of FREQ_MSG: " << (int)freq << endl;
+    EV_DETAIL << "SrcAddr field of FREQ_MSG: " << macAddr << endl;
+    NeighborInfo addNeighborInfo;
+    addNeighborInfo.macAddr = macAddr;
+    addNeighborInfo.frequencyChannel = freq;
+    neighbourList.push_back(addNeighborInfo);
+}
+
 void Ieee802154MacFreq::decapsulate(Packet *packet)
 {
-    const auto& csmaHeader = packet->popAtFront<Ieee802154MacHeader>();
-    packet->addTagIfAbsent<MacAddressInd>()->setSrcAddress(csmaHeader->getSrcAddr());
-    packet->addTagIfAbsent<InterfaceInd>()->setInterfaceId(interfaceEntry->getInterfaceId());
     EV_DETAIL << "DECAPSULANDO MSG PT1" << endl;
-    auto protocol = ProtocolGroup::ethertype.findProtocol(csmaHeader->getNetworkProtocol());
     if (strcmp(packet->getName(),"freqMsg")==0){  // Message name: freqMsg
+        addNeighborInfo(packet);
         executeMac(EV_FREQ_MSG, packet);
-        auto data = packet->peekAt(b(csmaHeader->getChunkLength()), b(8));
-        EV_DETAIL << "DECAPSULANDO MSG PT2 if" << endl;
-        EV_DETAIL << "Data field of FREQ_MSG: " << data << endl;
         return;
     }else{
+        const auto& csmaHeader = packet->popAtFront<Ieee802154MacHeader>();
+        packet->addTagIfAbsent<MacAddressInd>()->setSrcAddress(csmaHeader->getSrcAddr());
+        packet->addTagIfAbsent<InterfaceInd>()->setInterfaceId(interfaceEntry->getInterfaceId());
+        auto protocol = ProtocolGroup::ethertype.findProtocol(csmaHeader->getNetworkProtocol());
         EV_DETAIL << "DECAPSULANDO MSG P2 else" << endl;
         auto payloadProtocol = ProtocolGroup::ethertype.getProtocol(csmaHeader->getNetworkProtocol());
         EV_DETAIL << "O network protocol usado" << csmaHeader->getNetworkProtocol() << endl;
