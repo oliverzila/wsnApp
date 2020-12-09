@@ -339,6 +339,7 @@ class INET_API Ieee802154MacFreq : public MacProtocolBase, public IMacProtocol
     {
         MacAddress macAddr;
         uint8_t frequencyChannel;
+        unsigned int frequencyRadio;
         // perhaps adding the time_stamp of the last message
     };
 

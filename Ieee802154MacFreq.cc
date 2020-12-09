@@ -196,6 +196,11 @@ void Ieee802154MacFreq::freqInitialize()
 
 }
 
+void Ieee802154MacFreq::encapsulateFrequencyMessage(Packet *packet, uint8_t frequencyChannel, const char *msgName)
+{
+
+}
+
 void Ieee802154MacFreq::freqAllocationInit()
 {
 
@@ -269,7 +274,7 @@ void Ieee802154MacFreq::handleUpperPacket(Packet *packet)
         if(it->macAddr == dest){
             EV_DETAIL << "Found the dest device - Setting up radio channel" << endl;
             destinationFrequencyChannel = it-> frequencyChannel;
-            // call function to change the channel
+            // TODO call function to change the channel
         }else{
             // should this happen? seems like a problem
         }
@@ -1045,6 +1050,7 @@ void Ieee802154MacFreq::addNeighborInfo(Packet *packet)
     NeighborInfo addNeighborInfo;
     addNeighborInfo.macAddr = macAddr;
     addNeighborInfo.frequencyChannel = freq;
+    addNeighborInfo.frequencyRadio = 2405 + 5 * (frequencyChannel -11); // TODO maybe check if channel is from 11 to 26
     neighbourList.push_back(addNeighborInfo);
 }
 
