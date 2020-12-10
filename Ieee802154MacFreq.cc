@@ -1072,11 +1072,24 @@ void Ieee802154MacFreq::addNeighborInfo(Packet *packet)
     EV_DETAIL << "Device: " << getName() << " DECAPSULANDO MSG PT2 if" << endl;
     EV_DETAIL << "Data field of FREQ_MSG: " << (int)freq << endl;
     EV_DETAIL << "SrcAddr field of FREQ_MSG: " << macAddr << endl;
-    NeighborInfo addNeighborInfo;
-    addNeighborInfo.macAddr = macAddr;
-    addNeighborInfo.frequencyChannel = freq;
-    addNeighborInfo.frequencyRadio = 2405 + 5 * (frequencyChannel -11);
-    neighbourList.push_back(addNeighborInfo);
+
+    bool existingDevice = false;
+
+    for (auto it = neighbourList.begin(); it != neighbourList.end(); it++){
+        if(it->macAddr == macAddr){     // device already in the list, just update info
+            it->frequencyChannel = freq;
+            it->frequencyRadio = 2405 + 5 * (freq -11);
+            existingDevice = true;
+        }
+    }
+
+    if (!existingDevice){               // new device, add to the list
+        NeighborInfo addNeighborInfo;
+        addNeighborInfo.macAddr = macAddr;
+        addNeighborInfo.frequencyChannel = freq;
+        addNeighborInfo.frequencyRadio = 2405 + 5 * (freq -11);
+        neighbourList.push_back(addNeighborInfo);
+    }
 }
 
 void Ieee802154MacFreq::decapsulate(Packet *packet)
