@@ -164,16 +164,15 @@ void Ieee802154MacFreq::initialize(int stage)
 void Ieee802154MacFreq::freqInitialize()
 {
     // generates a channel number and broadcast it to the other devices
-    if (freqMessage != nullptr)
-        delete freqMessage;
     frequencyChannel = intuniform(11,26);
-    freqMessage = new Packet("FREQ-MSG");
-    encapsulateFrequencyMessage(freqMessage, frequencyChannel, "freqMsg");
-    executeMac(EV_SEND_REQUEST, freqMessage);
+    encapsulateAndSendFrequencyMessage(freqMessage, frequencyChannel, "freqMsg", "FREQ-MSG");
 }
 
-void Ieee802154MacFreq::encapsulateFrequencyMessage(Packet *packet, uint8_t frequencyChannel, const char *msgName)
+void Ieee802154MacFreq::encapsulateAndSendFrequencyMessage(Packet *packet, uint8_t frequencyChannel, const char *msgName, const char *pktName)
 {
+    if (freqMessage != nullptr)
+        delete freqMessage;
+    freqMessage = new Packet(pktName);
     auto csmaHeader = makeShared<Ieee802154MacHeader>();
     csmaHeader->setChunkLength(b(freqLength));
     MacAddress dest = MacAddress::BROADCAST_ADDRESS;
@@ -196,11 +195,12 @@ void Ieee802154MacFreq::encapsulateFrequencyMessage(Packet *packet, uint8_t freq
     freqMessage->addTag<PacketProtocolTag>()->setProtocol(&Protocol::ieee802154);
     EV_DETAIL << "pkt with frequency encapsulated, length: " << freqMessage->getTotalLength() << "\n";
     EV_INFO << "srcAddr: " << csmaHeader->getSrcAddr() << " and channel: " << (int)frequencyChannel << endl;
+    executeMac(EV_SEND_REQUEST, freqMessage);
 }
 
 void Ieee802154MacFreq::freqAllocationInit()
 {
-
+// TODO implement *-*
 }
 
 void Ieee802154MacFreq::finish()
@@ -229,6 +229,7 @@ Ieee802154MacFreq::~Ieee802154MacFreq()
     cancelAndDelete(sifsTimer);
     cancelAndDelete(rxAckTimer);
     cancelAndDelete(freqTimer);
+    cancelAndDelete(freqAllocTimer);
     if (ackMessage)
         delete ackMessage;
     if (freqMessage)
@@ -901,12 +902,8 @@ void Ieee802154MacFreq::handleSelfMessage(cMessage *msg)
     }
     else if (msg == freqTimer) {
         EV_DETAIL << "freqTimer message arrived named: " << freqTimer->getName() << endl;
-        if (strcmp(freqTimer->getName(), "timer-startFreq")==0){
-            EV_DETAIL << "Handling timer-startFreq msg" << endl;
-            freqInitialize();
-        }else if (strcmp(freqTimer->getName(), "timer-startAlloc")==0){
-            freqAllocationInit();
-        }
+        EV_DETAIL << "Handling timer-startFreq msg" << endl;
+        freqInitialize();
     }
     else
         EV << "CSMA Error: unknown timer fired:" << msg << endl;
@@ -1034,6 +1031,7 @@ void Ieee802154MacFreq::receiveSignal(cComponent *source, simsignal_t signalID, 
 void Ieee802154MacFreq::addNeighborInfo(Packet *packet)
 {
     // TODO check mac address, if already exists update channel only
+
     const auto& csmaHeader = packet->popAtFront<Ieee802154MacHeader>();
     auto macAddr = csmaHeader->getSrcAddr();
     // auto data = packet->peekAt(b(csmaHeader->getChunkLength()), b(8));

@@ -149,12 +149,13 @@ class INET_API Ieee802154MacFreq : public MacProtocolBase, public IMacProtocol
         TIMER_CCA,
         TIMER_SIFS,
         TIMER_RX_ACK,
-        TIMER_FREQ
+        TIMER_FREQ,
+        TIMER_ALLOC
     };
 
     /** @name Pointer for timer messages.*/
     /*@{*/
-    cMessage *backoffTimer, *ccaTimer, *sifsTimer, *rxAckTimer, *freqTimer;
+    cMessage *backoffTimer, *ccaTimer, *sifsTimer, *rxAckTimer, *freqTimer, *freqAllocTimer;
     /*@}*/
 
     /** @brief MAC state machine events.
@@ -326,11 +327,13 @@ class INET_API Ieee802154MacFreq : public MacProtocolBase, public IMacProtocol
     virtual void decapsulate(Packet *packet);
 
     void freqInitialize();
+
+    /**@brief Searches for devices at the same channel and tries to balance channel load */
     void freqAllocationInit();
 
     void addNeighborInfo(Packet *packet);
 
-    void encapsulateFrequencyMessage(Packet *packet, uint8_t frequencyChannel, const char *msgName);
+    void encapsulateAndSendFrequencyMessage(Packet *packet, uint8_t frequencyChannel, const char *msgName, const char *pktName);
 
     Packet *freqMessage;
 
