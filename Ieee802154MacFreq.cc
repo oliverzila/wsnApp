@@ -68,6 +68,7 @@ void Ieee802154MacFreq::initialize(int stage)
         macMaxFrameRetries = par("macMaxFrameRetries");
         macAckWaitDuration = par("macAckWaitDuration");
         macFreqInitWaitDuration = par("macFreqInitWaitDuration");
+        macFreqAllocWaitDuration = par("macFreqAllocWaitDuration");
         aUnitBackoffPeriod = par("aUnitBackoffPeriod");
         ccaDetectionTime = par("ccaDetectionTime");
         rxSetupTime = par("rxSetupTime");
@@ -106,6 +107,8 @@ void Ieee802154MacFreq::initialize(int stage)
         ccaTimer = new cMessage("timer-cca");
         sifsTimer = new cMessage("timer-sifs");
         rxAckTimer = new cMessage("timer-rxAck");
+        freqTimer = new cMessage("timer-startFreq"); //timer to start the frequency choice phase
+        freqAllocTimer = new cMessage("timer-AllocFreq"); // timer to call freqAllocationInit
         macState = IDLE_1;
         txAttempts = 0;
         txQueue = check_and_cast<queueing::IPacketQueue *>(getSubmodule("queue"));
@@ -131,20 +134,20 @@ void Ieee802154MacFreq::initialize(int stage)
         radio->setRadioMode(IRadio::RADIO_MODE_RECEIVER);
 
         // Change center frequency to initial channel
-        cMessage *msg = new cMessage;
-        msg->setKind(RADIO_C_CONFIGURE);
+//        cMessage *msg = new cMessage;
+//        msg->setKind(RADIO_C_CONFIGURE);
 
-        ConfigureRadioCommand *newConfigureCommand = new ConfigureRadioCommand();
+//        ConfigureRadioCommand *newConfigureCommand = new ConfigureRadioCommand();
         frequencyChannel = 26;
         frequencyRadio = 2405 + 5 * (frequencyChannel -11); // For channel from 11 to 26
-        newConfigureCommand->setCenterFrequency(MHz(frequencyRadio));
-        msg->setControlInfo(newConfigureCommand);
-        sendDown(msg);
+//        newConfigureCommand->setCenterFrequency(MHz(frequencyRadio));
+//        msg->setControlInfo(newConfigureCommand);
+//        sendDown(msg);
 
+        changeRadioChannel(frequencyChannel);
         EV << "Initializing at radio frequency:" << frequencyRadio << ", channel: "
                 << (int)frequencyChannel << endl;
 
-        freqTimer = new cMessage("timer-startFreq"); //timer to start the frequency choice phase
         EV_DETAIL << "Scheduling new freqTimer message named: " << freqTimer->getName() << endl;
         startTimer(TIMER_FREQ);
         //scheduleAt(simTime() + uniform(macFreqInitWaitDuration/4,macFreqInitWaitDuration*2), freqTimer);
@@ -152,6 +155,7 @@ void Ieee802154MacFreq::initialize(int stage)
         // resulting in not all the hosts being heard (? is that a problem for a dense network ?)
 
         bWasFreq = false;
+        allocationDone = false;
         // End of Change center frequency to initial channel
 
         EV_DETAIL << " bitrate = " << bitrate
@@ -198,11 +202,6 @@ void Ieee802154MacFreq::encapsulateAndSendFrequencyMessage(Packet *packet, uint8
     executeMac(EV_SEND_REQUEST, freqMessage);
 }
 
-void Ieee802154MacFreq::freqAllocationInit()
-{
-// TODO implement *-*
-}
-
 void Ieee802154MacFreq::finish()
 {
     recordScalar("nbTxFrames", nbTxFrames);
@@ -230,6 +229,8 @@ Ieee802154MacFreq::~Ieee802154MacFreq()
     cancelAndDelete(rxAckTimer);
     cancelAndDelete(freqTimer);
     cancelAndDelete(freqAllocTimer);
+    if (msgRadioChannel)
+        delete msgRadioChannel;
     if (ackMessage)
         delete ackMessage;
     if (freqMessage)
@@ -272,7 +273,9 @@ void Ieee802154MacFreq::handleUpperPacket(Packet *packet)
         if(it->macAddr == dest){
             EV_DETAIL << "Found the dest device - Setting up radio channel" << endl;
             destinationFrequencyChannel = it-> frequencyChannel;
-            // TODO call function to change the channel
+            if (allocationDone)
+                changeRadioChannel(destinationFrequencyChannel);
+            // TODO change the channel back to the Rx Channel
         }else{
             // should this happen? seems like a problem
         }
@@ -834,10 +837,13 @@ void Ieee802154MacFreq::startTimer(t_mac_timer timer)
         assert(useMACAcks);
         EV_DETAIL << "(startTimer) rxAckTimer value=" << macAckWaitDuration << endl;
         scheduleAt(simTime() + macAckWaitDuration, rxAckTimer);
-    }else if (timer == TIMER_FREQ) {
+    }
+    else if (timer == TIMER_FREQ) {
         scheduleAt(simTime() + uniform(macFreqInitWaitDuration/4,macFreqInitWaitDuration*2), freqTimer);
     }
-    else{
+    else if (timer == TIMER_ALLOC){
+        scheduleAt(simTime() + macFreqAllocWaitDuration, freqAllocTimer);
+    }else{
         EV << "Unknown timer requested to start:" << timer << endl;
     }
 }
@@ -905,8 +911,27 @@ void Ieee802154MacFreq::handleSelfMessage(cMessage *msg)
         EV_DETAIL << "Handling timer-startFreq msg" << endl;
         freqInitialize();
     }
+    else if (msg == freqAllocTimer) {
+        EV_DETAIL << "Frequency allocation phase finished" << endl;
+        EV_DETAIL << "Moving now to channel: " << (int)frequencyChannel << endl;
+        changeRadioChannel(frequencyChannel);
+        allocationDone = true;
+    }
     else
         EV << "CSMA Error: unknown timer fired:" << msg << endl;
+}
+
+void Ieee802154MacFreq::changeRadioChannel(uint8_t newChannel)
+{
+    // TODO check if channel is from 11 to 26
+    //cMessage *msgRadioChannel = new cMessage;
+    msgRadioChannel = new cMessage;
+    msgRadioChannel->setKind(RADIO_C_CONFIGURE);
+    ConfigureRadioCommand *newConfigureCommand = new ConfigureRadioCommand();
+    unsigned int newCenterFreq = 2405 + 5 * (newChannel -11);
+    newConfigureCommand->setCenterFrequency(MHz(newCenterFreq));
+    msgRadioChannel->setControlInfo(newConfigureCommand);
+    sendDown(msgRadioChannel);
 }
 
 /**
@@ -1028,6 +1053,11 @@ void Ieee802154MacFreq::receiveSignal(cComponent *source, simsignal_t signalID, 
     }
 }
 
+void Ieee802154MacFreq::freqAllocationInit()
+{
+// TODO implement *-* (fazer balanceamento do uso dos canais
+}
+
 void Ieee802154MacFreq::addNeighborInfo(Packet *packet)
 {
     // TODO check mac address, if already exists update channel only
@@ -1045,7 +1075,7 @@ void Ieee802154MacFreq::addNeighborInfo(Packet *packet)
     NeighborInfo addNeighborInfo;
     addNeighborInfo.macAddr = macAddr;
     addNeighborInfo.frequencyChannel = freq;
-    addNeighborInfo.frequencyRadio = 2405 + 5 * (frequencyChannel -11); // TODO maybe check if channel is from 11 to 26
+    addNeighborInfo.frequencyRadio = 2405 + 5 * (frequencyChannel -11);
     neighbourList.push_back(addNeighborInfo);
 }
 
@@ -1053,6 +1083,9 @@ void Ieee802154MacFreq::decapsulate(Packet *packet)
 {
     EV_DETAIL << "DECAPSULANDO MSG PT1" << endl;
     if (strcmp(packet->getName(),"freqMsg")==0){  // Message name: freqMsg
+        if (freqAllocTimer->isScheduled())
+            cancelEvent(freqAllocTimer);
+        startTimer(TIMER_ALLOC);
         addNeighborInfo(packet);
         executeMac(EV_FREQ_MSG, packet);
         return;

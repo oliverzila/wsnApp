@@ -79,6 +79,9 @@ module Ieee802154MacFreq extends MacProtocolBase like IMacProtocol
         
         // Time to wait before initializing frequency selection
         double macFreqInitWaitDuration @unit(s) = default(0.0005 s);
+        
+        // Time to wait for new freqMsg before changing channels
+        double macFreqAllocWaitDuration @unit(s) = default(0.005 s);
 
         //Backoff method to use: constant, linear or exponential
         string backoffMethod = default("linear");

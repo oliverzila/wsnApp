@@ -61,6 +61,7 @@ class INET_API Ieee802154MacFreq : public MacProtocolBase, public IMacProtocol
         , nbBackoffs(0)
         , backoffValues(0)
         , backoffTimer(nullptr), ccaTimer(nullptr), sifsTimer(nullptr), rxAckTimer(nullptr)
+        , freqTimer(nullptr), freqAllocTimer(nullptr)
         , macState(IDLE_1)
         , status(STATUS_OK)
         , radio(nullptr)
@@ -68,6 +69,7 @@ class INET_API Ieee802154MacFreq : public MacProtocolBase, public IMacProtocol
         , sifs()
         , macAckWaitDuration()
         , macFreqInitWaitDuration()
+        , macFreqAllocWaitDuration()
         , headerLength(0)
         , transmissionAttemptInterruptedByRx(false)
         , ccaDetectionTime()
@@ -155,7 +157,7 @@ class INET_API Ieee802154MacFreq : public MacProtocolBase, public IMacProtocol
 
     /** @name Pointer for timer messages.*/
     /*@{*/
-    cMessage *backoffTimer, *ccaTimer, *sifsTimer, *rxAckTimer, *freqTimer, *freqAllocTimer;
+    cMessage *backoffTimer, *ccaTimer, *sifsTimer, *rxAckTimer, *freqTimer, *freqAllocTimer, *msgRadioChannel;
     /*@}*/
 
     /** @brief MAC state machine events.
@@ -225,6 +227,9 @@ class INET_API Ieee802154MacFreq : public MacProtocolBase, public IMacProtocol
 
     /** @brief The amount of time the MAC waits for Frequency Selection to initialize.  */
     simtime_t macFreqInitWaitDuration;
+
+    /** @brief The amount of time the MAC waits for a new freqMsg packet */
+    simtime_t macFreqAllocWaitDuration;
 
     /** @brief Length of the header*/
     int headerLength;
@@ -299,6 +304,9 @@ class INET_API Ieee802154MacFreq : public MacProtocolBase, public IMacProtocol
     /** @brief stores if last broadcast msg was freq msg. */
     bool bWasFreq;
 
+    /** @brief indicates that near devices already informed their frequency */
+    bool allocationDone;
+
   protected:
     /** @brief Generate new interface address*/
     virtual void configureInterfaceEntry() override;
@@ -330,6 +338,8 @@ class INET_API Ieee802154MacFreq : public MacProtocolBase, public IMacProtocol
 
     /**@brief Searches for devices at the same channel and tries to balance channel load */
     void freqAllocationInit();
+
+    void changeRadioChannel(uint8_t newChannel);
 
     void addNeighborInfo(Packet *packet);
 
