@@ -330,6 +330,8 @@ class INET_API Ieee802154MacFreq : public MacProtocolBase, public IMacProtocol
 
     void addNeighborInfo(Packet *packet);
 
+    void encapsulateFrequencyMessage(Packet *packet, uint8_t frequencyChannel, const char *msgName);
+
     Packet *freqMessage;
 
     Packet *ackMessage;

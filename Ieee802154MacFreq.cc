@@ -166,14 +166,18 @@ void Ieee802154MacFreq::freqInitialize()
     // generates a channel number and broadcast it to the other devices
     if (freqMessage != nullptr)
         delete freqMessage;
+    frequencyChannel = intuniform(11,26);
+    freqMessage = new Packet("FREQ-MSG");
+    encapsulateFrequencyMessage(freqMessage, frequencyChannel, "freqMsg");
+    executeMac(EV_SEND_REQUEST, freqMessage);
+}
+
+void Ieee802154MacFreq::encapsulateFrequencyMessage(Packet *packet, uint8_t frequencyChannel, const char *msgName)
+{
     auto csmaHeader = makeShared<Ieee802154MacHeader>();
     csmaHeader->setChunkLength(b(freqLength));
-
     MacAddress dest = MacAddress::BROADCAST_ADDRESS;
     EV_DETAIL << "Broadcasting test message" << endl;
-
-    frequencyChannel = intuniform(11,26);
-    //auto data = makeShared<ByteCountChunk>(B(1), frequencyChannel);
     const auto& payload = makeShared<FrequencyPacket>();
     payload->setChunkLength(B(1)); // TODO this could be a parameter? alwyas check if FrequencyPacket was changed
     payload->setFreqChannel(frequencyChannel);
@@ -185,20 +189,13 @@ void Ieee802154MacFreq::freqInitialize()
 
     EV_DETAIL << "Packet send with sequence number = " << SeqNrParent[dest] << endl;
     SeqNrParent[dest]++;
-    freqMessage = new Packet("FREQ-MSG");
-    freqMessage->setName("freqMsg");
+
+    freqMessage->setName(msgName);
     freqMessage->insertAtFront(csmaHeader);
     freqMessage->insertAtBack(payload);
     freqMessage->addTag<PacketProtocolTag>()->setProtocol(&Protocol::ieee802154);
     EV_DETAIL << "pkt with frequency encapsulated, length: " << freqMessage->getTotalLength() << "\n";
     EV_INFO << "srcAddr: " << csmaHeader->getSrcAddr() << " and channel: " << (int)frequencyChannel << endl;
-    executeMac(EV_SEND_REQUEST, freqMessage);
-
-}
-
-void Ieee802154MacFreq::encapsulateFrequencyMessage(Packet *packet, uint8_t frequencyChannel, const char *msgName)
-{
-
 }
 
 void Ieee802154MacFreq::freqAllocationInit()
