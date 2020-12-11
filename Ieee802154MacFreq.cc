@@ -76,7 +76,7 @@ void Ieee802154MacFreq::initialize(int stage)
         bitrate = par("bitrate");
         ackLength = par("ackLength");
         ackMessage = nullptr;
-        freqLength = par("headerLength"); //TODO make a param for this
+        //  freqLength = par("headerLength"); //TODO make a param for this
         freqMessage = nullptr;
 
         //init parameters for backoff method
@@ -178,7 +178,7 @@ void Ieee802154MacFreq::encapsulateAndSendFrequencyMessage(Packet *packet, uint8
         delete freqMessage;
     freqMessage = new Packet(pktName);
     auto csmaHeader = makeShared<Ieee802154MacHeader>();
-    csmaHeader->setChunkLength(b(freqLength));
+    csmaHeader->setChunkLength(b(headerLength));
     MacAddress dest = MacAddress::BROADCAST_ADDRESS;
     EV_DETAIL << "Broadcasting test message" << endl;
     const auto& payload = makeShared<FrequencyPacket>();
@@ -924,7 +924,6 @@ void Ieee802154MacFreq::handleSelfMessage(cMessage *msg)
 void Ieee802154MacFreq::changeRadioChannel(uint8_t newChannel)
 {
     // TODO check if channel is from 11 to 26
-    //cMessage *msgRadioChannel = new cMessage;
     msgRadioChannel = new cMessage;
     msgRadioChannel->setKind(RADIO_C_CONFIGURE);
     ConfigureRadioCommand *newConfigureCommand = new ConfigureRadioCommand();
@@ -1060,8 +1059,6 @@ void Ieee802154MacFreq::freqAllocationInit()
 
 void Ieee802154MacFreq::addNeighborInfo(Packet *packet)
 {
-    // TODO check mac address, if already exists update channel only
-
     const auto& csmaHeader = packet->popAtFront<Ieee802154MacHeader>();
     auto macAddr = csmaHeader->getSrcAddr();
     // auto data = packet->peekAt(b(csmaHeader->getChunkLength()), b(8));
