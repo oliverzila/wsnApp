@@ -301,11 +301,23 @@ class INET_API Ieee802154MacFreq : public MacProtocolBase, public IMacProtocol
     /** @brief The bit length of the Frequency packet.*/
     int freqLength;
 
+    /** @brief The number of freq broadcast sent.*/
+    int countAlloc;
+
+    /** @brief The number of maximum frequency broadcast.*/
+    int maxAllocBroadcast;
+
     /** @brief stores if last broadcast msg was freq msg. */
     bool bWasFreq;
 
     /** @brief indicates that near devices already informed their frequency */
     bool allocationDone;
+
+    /** @brief indicates that now radio can return to receiving channel */
+    bool returnToRxCh;
+
+    /** @brief indicates if freqTimer has finished for the first time */
+    bool freqTimerFirstTime;
 
   protected:
     /** @brief Generate new interface address*/

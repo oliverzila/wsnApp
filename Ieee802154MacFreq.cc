@@ -133,16 +133,9 @@ void Ieee802154MacFreq::initialize(int stage)
         }
         radio->setRadioMode(IRadio::RADIO_MODE_RECEIVER);
 
-        // Change center frequency to initial channel
-//        cMessage *msg = new cMessage;
-//        msg->setKind(RADIO_C_CONFIGURE);
 
-//        ConfigureRadioCommand *newConfigureCommand = new ConfigureRadioCommand();
         frequencyChannel = 26;
         frequencyRadio = 2405 + 5 * (frequencyChannel -11); // For channel from 11 to 26
-//        newConfigureCommand->setCenterFrequency(MHz(frequencyRadio));
-//        msg->setControlInfo(newConfigureCommand);
-//        sendDown(msg);
 
         changeRadioChannel(frequencyChannel);
         EV << "Initializing at radio frequency:" << frequencyRadio << ", channel: "
@@ -156,6 +149,11 @@ void Ieee802154MacFreq::initialize(int stage)
 
         bWasFreq = false;
         allocationDone = false;
+        returnToRxCh = false;
+        countAlloc = 0;
+        maxAllocBroadcast = 3;
+        freqTimerFirstTime = true;
+
         // End of Change center frequency to initial channel
 
         EV_DETAIL << " bitrate = " << bitrate
@@ -170,12 +168,13 @@ void Ieee802154MacFreq::freqInitialize()
     // generates a channel number and broadcast it to the other devices
     frequencyChannel = intuniform(11,26);
     encapsulateAndSendFrequencyMessage(freqMessage, frequencyChannel, "freqMsg", "FREQ-MSG");
+
 }
 
 void Ieee802154MacFreq::encapsulateAndSendFrequencyMessage(Packet *packet, uint8_t frequencyChannel, const char *msgName, const char *pktName)
 {
-    if (freqMessage != nullptr)
-        delete freqMessage;
+   // if (freqMessage != nullptr)
+   //     delete freqMessage;
     freqMessage = new Packet(pktName);
     auto csmaHeader = makeShared<Ieee802154MacHeader>();
     csmaHeader->setChunkLength(b(headerLength));
@@ -268,6 +267,8 @@ void Ieee802154MacFreq::handleUpperPacket(Packet *packet)
     EV_DETAIL << "CSMA received a message from upper layer, name is " << packet->getName() << ", CInfo removed, mac addr=" << dest << endl;
 
     // look up for the channel
+    // TODO check if channel shouldn't be changed somewhere else, as this only works
+    // if queue is with this 1 packet only
     for (auto it = neighbourList.begin(); it != neighbourList.end(); it++){
         EV_DETAIL << "HandleUpperPacket - Looking for mac address in neighbors list" << endl;
         if(it->macAddr == dest){
@@ -277,6 +278,7 @@ void Ieee802154MacFreq::handleUpperPacket(Packet *packet)
                 changeRadioChannel(destinationFrequencyChannel);
             // TODO change the channel back to the Rx Channel
         }else{
+            EV_DETAIL << "Neighbor not on the list - bad" << endl;
             // should this happen? seems like a problem
         }
     }
@@ -372,10 +374,12 @@ void Ieee802154MacFreq::updateStatusBackoff(t_mac_event event, cMessage *msg)
 {
     switch (event) {
         case EV_TIMER_BACKOFF:
+
             EV_DETAIL << "(2) FSM State BACKOFF, EV_TIMER_BACKOFF:"
                       << " starting CCA timer." << endl;
             startTimer(TIMER_CCA);
             updateMacState(CCA_3);
+            // TODO maybe the channel should be changed here
             radio->setRadioMode(IRadio::RADIO_MODE_RECEIVER);
             break;
 
@@ -455,6 +459,8 @@ void Ieee802154MacFreq::updateStatusCCA(t_mac_event event, cMessage *msg)
             if (isIdle) {
                 EV_DETAIL << "(3) FSM State CCA_3, EV_TIMER_CCA, [Channel Idle]: -> TRANSMITFRAME_4." << endl;
                 updateMacState(TRANSMITFRAME_4);
+
+
                 radio->setRadioMode(IRadio::RADIO_MODE_TRANSMITTER);
                 if (currentTxFrame == nullptr)
                     popTxQueue();
@@ -478,6 +484,7 @@ void Ieee802154MacFreq::updateStatusCCA(t_mac_event event, cMessage *msg)
                     EV_DETAIL << "Tried " << NB << " backoffs, all reported a busy "
                               << "channel. Dropping the packet." << endl;
                     txAttempts = 0;
+
                     if (currentTxFrame) {
                         nbDroppedFrames++;
                         PacketDropDetails details;
@@ -741,6 +748,11 @@ void Ieee802154MacFreq::executeMac(t_mac_event event, cMessage *msg)
     else {
         switch (macState) {
             case IDLE_1:
+//                if(returnToRxCh){
+//                    changeRadioChannel(frequencyChannel);
+//                    returnToRxCh = false;
+//                    EV << "executeMac: IDLE - returning to Rx channel" << endl;
+//                }
                 updateStatusIdle(event, msg);
                 break;
 
@@ -797,6 +809,10 @@ void Ieee802154MacFreq::manageQueue()
     }
     else {
         EV_DETAIL << "(manageQueue) no packets to send, entering IDLE state." << endl;
+        //returnToRxCh = true;
+        if(allocationDone)
+            changeRadioChannel(frequencyChannel);
+        EV_DETAIL << "(manageQueue) Returned to Rx channel" << endl;
         updateMacState(IDLE_1);
     }
 }
@@ -839,10 +855,11 @@ void Ieee802154MacFreq::startTimer(t_mac_timer timer)
         scheduleAt(simTime() + macAckWaitDuration, rxAckTimer);
     }
     else if (timer == TIMER_FREQ) {
-        scheduleAt(simTime() + uniform(macFreqInitWaitDuration/4,macFreqInitWaitDuration*2), freqTimer);
+        //scheduleAt(simTime() + uniform(macFreqInitWaitDuration/4,macFreqInitWaitDuration*2), freqTimer);
+        scheduleAt(simTime() + intuniform(2,30)*0.000128, freqTimer);
     }
     else if (timer == TIMER_ALLOC){
-        scheduleAt(simTime() + macFreqAllocWaitDuration, freqAllocTimer);
+        scheduleAt(simTime() + macFreqAllocWaitDuration*3, freqAllocTimer);
     }else{
         EV << "Unknown timer requested to start:" << timer << endl;
     }
@@ -909,13 +926,32 @@ void Ieee802154MacFreq::handleSelfMessage(cMessage *msg)
     else if (msg == freqTimer) {
         EV_DETAIL << "freqTimer message arrived named: " << freqTimer->getName() << endl;
         EV_DETAIL << "Handling timer-startFreq msg" << endl;
-        freqInitialize();
+        if(freqTimerFirstTime){
+            freqInitialize();
+            freqTimerFirstTime = false;
+        }
+        else
+            encapsulateAndSendFrequencyMessage(freqMessage, frequencyChannel, "freqMsg", "FREQ-MSG");
     }
     else if (msg == freqAllocTimer) {
-        EV_DETAIL << "Frequency allocation phase finished" << endl;
-        EV_DETAIL << "Moving now to channel: " << (int)frequencyChannel << endl;
-        changeRadioChannel(frequencyChannel);
-        allocationDone = true;
+        EV_DETAIL << "Frequency allocation phase " << countAlloc;
+        EV_DETAIL << "finished: " << endl;
+
+        if(countAlloc<maxAllocBroadcast){
+            startTimer(TIMER_FREQ);
+            countAlloc++;
+        }
+        else
+            if(!neighbourList.empty())
+            {
+                EV_DETAIL << "Frequency allocation phase finished" << endl;
+                EV_DETAIL << "Moving now to channel: " << (int)frequencyChannel << endl;
+                allocationDone = true;
+                EV_DETAIL << "Number of neighbors detected: " << neighbourList.size() << endl;
+                changeRadioChannel(frequencyChannel);
+            }
+
+
     }
     else
         EV << "CSMA Error: unknown timer fired:" << msg << endl;
