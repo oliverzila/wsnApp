@@ -151,9 +151,11 @@ void Ieee802154MacFreq::initialize(int stage)
         allocationDone = false;
         returnToRxCh = false;
         countAlloc = 0;
+        countTimeoutAlloc = 0;
         maxAllocBroadcast = 3;
+        maxFreqMsgcnt = 3;
         freqTimerFirstTime = true;
-
+        freqMsgcnt = 0;
         // End of Change center frequency to initial channel
 
         EV_DETAIL << " bitrate = " << bitrate
@@ -198,6 +200,14 @@ void Ieee802154MacFreq::encapsulateAndSendFrequencyMessage(Packet *packet, uint8
     freqMessage->addTag<PacketProtocolTag>()->setProtocol(&Protocol::ieee802154);
     EV_DETAIL << "pkt with frequency encapsulated, length: " << freqMessage->getTotalLength() << "\n";
     EV_INFO << "srcAddr: " << csmaHeader->getSrcAddr() << " and channel: " << (int)frequencyChannel << endl;
+
+    if(!allocationDone)
+    {
+        scheduleAt(simTime() + macFreqAllocWaitDuration*uniform(2.0,4.0) + rxSetupTime, freqTimer);
+        freqMsgcnt++;
+    }
+
+
     executeMac(EV_SEND_REQUEST, freqMessage);
 }
 
@@ -380,6 +390,13 @@ void Ieee802154MacFreq::updateStatusBackoff(t_mac_event event, cMessage *msg)
             startTimer(TIMER_CCA);
             updateMacState(CCA_3);
             // TODO maybe the channel should be changed here
+            if (currentTxFrame == nullptr)
+                popTxQueue();
+            for (auto it = neighbourList.begin(); it != neighbourList.end(); it++){
+                if(it->macAddr == currentTxFrame->peekAtFront<Ieee802154MacHeader>()->getDestAddr())
+                    EV_DETAIL << "Estamos por aqui kkkk" << endl;
+            }
+            //
             radio->setRadioMode(IRadio::RADIO_MODE_RECEIVER);
             break;
 
@@ -810,9 +827,10 @@ void Ieee802154MacFreq::manageQueue()
     else {
         EV_DETAIL << "(manageQueue) no packets to send, entering IDLE state." << endl;
         //returnToRxCh = true;
-        if(allocationDone)
+        if(allocationDone){
             changeRadioChannel(frequencyChannel);
-        EV_DETAIL << "(manageQueue) Returned to Rx channel" << endl;
+            EV_DETAIL << "(manageQueue) Returned to Rx channel" << endl;
+        }
         updateMacState(IDLE_1);
     }
 }
@@ -856,10 +874,11 @@ void Ieee802154MacFreq::startTimer(t_mac_timer timer)
     }
     else if (timer == TIMER_FREQ) {
         //scheduleAt(simTime() + uniform(macFreqInitWaitDuration/4,macFreqInitWaitDuration*2), freqTimer);
-        scheduleAt(simTime() + intuniform(2,30)*0.000128, freqTimer);
+        scheduleAt(simTime() + intuniform(2,40)*0.025, freqTimer);
     }
     else if (timer == TIMER_ALLOC){
-        scheduleAt(simTime() + macFreqAllocWaitDuration*3, freqAllocTimer);
+       scheduleAt(simTime() + 0.05, freqAllocTimer);
+       // scheduleAt(simTime() + macFreqAllocWaitDuration, freqAllocTimer);
     }else{
         EV << "Unknown timer requested to start:" << timer << endl;
     }
@@ -926,29 +945,48 @@ void Ieee802154MacFreq::handleSelfMessage(cMessage *msg)
     else if (msg == freqTimer) {
         EV_DETAIL << "freqTimer message arrived named: " << freqTimer->getName() << endl;
         EV_DETAIL << "Handling timer-startFreq msg" << endl;
+        EV_DETAIL << "Allocation state is: " << allocationDone << endl;
         if(freqTimerFirstTime){
             freqInitialize();
             freqTimerFirstTime = false;
         }
-        else
-            encapsulateAndSendFrequencyMessage(freqMessage, frequencyChannel, "freqMsg", "FREQ-MSG");
+        else if(!allocationDone){
+            if(freqMsgcnt>maxFreqMsgcnt && countAlloc > 0){
+                EV_DETAIL << "Max broadcast messages sent. Calling TIMER_ALLOC" << endl;
+                if (freqAllocTimer->isScheduled())
+                    cancelEvent(freqAllocTimer);
+                startTimer(TIMER_ALLOC);
+            }else{
+                EV_DETAIL << "Not done allocating, sending another broadcast" << endl;
+                encapsulateAndSendFrequencyMessage(freqMessage, frequencyChannel, "freqMsg", "FREQ-MSG");
+            }
+
+        }
+
     }
     else if (msg == freqAllocTimer) {
         EV_DETAIL << "Frequency allocation phase " << countAlloc;
-        EV_DETAIL << "finished: " << endl;
+        EV_DETAIL << " finished: " << endl;
 
-        if(countAlloc<maxAllocBroadcast){
-            startTimer(TIMER_FREQ);
-            countAlloc++;
+        countTimeoutAlloc++;
+        if(countAlloc<maxAllocBroadcast || !(freqMsgcnt>maxFreqMsgcnt)){
+           // startTimer(TIMER_FREQ);
+           // countAlloc++;
         }
         else
             if(!neighbourList.empty())
             {
-                EV_DETAIL << "Frequency allocation phase finished" << endl;
-                EV_DETAIL << "Moving now to channel: " << (int)frequencyChannel << endl;
-                allocationDone = true;
-                EV_DETAIL << "Number of neighbors detected: " << neighbourList.size() << endl;
-                changeRadioChannel(frequencyChannel);
+                if(!allocationDone)
+                {
+                    EV_DETAIL << "Frequency allocation phase finished" << endl;
+                    EV_DETAIL << "Moving now to channel: " << (int)frequencyChannel << endl;
+                    allocationDone = true;
+                    if(freqTimer->isScheduled())
+                        cancelEvent(freqTimer);
+                    EV_DETAIL << "Number of neighbors detected: " << neighbourList.size() << ",  at time: " << simTime();
+                    EV_DETAIL << ", freqMsgcnt: " << freqMsgcnt << ", countAlloc: " << countAlloc << ", freqMsg received: " << countTimeoutAlloc << endl;
+                    changeRadioChannel(frequencyChannel);
+                }
             }
 
 
@@ -1131,6 +1169,8 @@ void Ieee802154MacFreq::decapsulate(Packet *packet)
     if (strcmp(packet->getName(),"freqMsg")==0){  // Message name: freqMsg
         if (freqAllocTimer->isScheduled())
             cancelEvent(freqAllocTimer);
+        EV_DETAIL << "TIMER ALLOC reset" << endl;
+        countAlloc++;
         startTimer(TIMER_ALLOC);
         addNeighborInfo(packet);
         executeMac(EV_FREQ_MSG, packet);
