@@ -279,19 +279,19 @@ void Ieee802154MacFreq::handleUpperPacket(Packet *packet)
     // look up for the channel
     // TODO check if channel shouldn't be changed somewhere else, as this only works
     // if queue is with this 1 packet only
-    for (auto it = neighbourList.begin(); it != neighbourList.end(); it++){
-        EV_DETAIL << "HandleUpperPacket - Looking for mac address in neighbors list" << endl;
-        if(it->macAddr == dest){
-            EV_DETAIL << "Found the dest device - Setting up radio channel" << endl;
-            destinationFrequencyChannel = it-> frequencyChannel;
-            if (allocationDone)
-                changeRadioChannel(destinationFrequencyChannel);
-            // TODO change the channel back to the Rx Channel
-        }else{
-            EV_DETAIL << "Neighbor not on the list - bad" << endl;
-            // should this happen? seems like a problem
-        }
-    }
+//    for (auto it = neighbourList.begin(); it != neighbourList.end(); it++){
+//        EV_DETAIL << "HandleUpperPacket - Looking for mac address in neighbors list" << endl;
+//        if(it->macAddr == dest){
+//            EV_DETAIL << "Found the dest device - Setting up radio channel" << endl;
+//            destinationFrequencyChannel = it-> frequencyChannel;
+//            if (allocationDone)
+//                changeRadioChannel(destinationFrequencyChannel);
+//            // TODO change the channel back to the Rx Channel
+//        }else{
+//            EV_DETAIL << "Neighbor not on the list - bad" << endl;
+//            // should this happen? seems like a problem
+//        }
+//    }
 
     //
 
@@ -390,12 +390,21 @@ void Ieee802154MacFreq::updateStatusBackoff(t_mac_event event, cMessage *msg)
             startTimer(TIMER_CCA);
             updateMacState(CCA_3);
             // TODO maybe the channel should be changed here
-            if (currentTxFrame == nullptr)
-                popTxQueue();
-            for (auto it = neighbourList.begin(); it != neighbourList.end(); it++){
-                if(it->macAddr == currentTxFrame->peekAtFront<Ieee802154MacHeader>()->getDestAddr())
-                    EV_DETAIL << "Estamos por aqui kkkk" << endl;
+            if(allocationDone){
+                if (currentTxFrame == nullptr)
+                    popTxQueue();
+                for (auto it = neighbourList.begin(); it != neighbourList.end(); it++){
+                    if(it->macAddr == currentTxFrame->peekAtFront<Ieee802154MacHeader>()->getDestAddr()){
+                        EV_DETAIL << "Estamos por aqui kkkk" << endl;
+                        destinationFrequencyChannel = it->frequencyChannel;
+                        EV_DETAIL << "Sending message at ch: " << (int)destinationFrequencyChannel << endl;
+                        changeRadioChannel(destinationFrequencyChannel);
+                    }else
+                        EV_DETAIL << "Neighbor not on the list - bad";
+
+                }
             }
+
             //
             radio->setRadioMode(IRadio::RADIO_MODE_RECEIVER);
             break;
@@ -877,7 +886,7 @@ void Ieee802154MacFreq::startTimer(t_mac_timer timer)
         scheduleAt(simTime() + intuniform(2,40)*0.025, freqTimer);
     }
     else if (timer == TIMER_ALLOC){
-       scheduleAt(simTime() + 0.05, freqAllocTimer);
+       scheduleAt(simTime() + 0.975, freqAllocTimer);
        // scheduleAt(simTime() + macFreqAllocWaitDuration, freqAllocTimer);
     }else{
         EV << "Unknown timer requested to start:" << timer << endl;
@@ -969,7 +978,7 @@ void Ieee802154MacFreq::handleSelfMessage(cMessage *msg)
         EV_DETAIL << " finished: " << endl;
 
         countTimeoutAlloc++;
-        if(countAlloc<maxAllocBroadcast || !(freqMsgcnt>maxFreqMsgcnt)){
+        if(countAlloc<maxAllocBroadcast || !(freqMsgcnt>maxFreqMsgcnt)){ // TODO maybe countTimeoutAlloc<maxAllocBroadcast
            // startTimer(TIMER_FREQ);
            // countAlloc++;
         }

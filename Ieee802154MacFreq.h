@@ -319,6 +319,7 @@ class INET_API Ieee802154MacFreq : public MacProtocolBase, public IMacProtocol
     /** @brief indicates that near devices already informed their frequency */
     bool allocationDone;
 
+
     /** @brief indicates that now radio can return to receiving channel */
     bool returnToRxCh;
 
