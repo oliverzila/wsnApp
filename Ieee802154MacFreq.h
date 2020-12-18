@@ -61,7 +61,7 @@ class INET_API Ieee802154MacFreq : public MacProtocolBase, public IMacProtocol
         , nbBackoffs(0)
         , backoffValues(0)
         , backoffTimer(nullptr), ccaTimer(nullptr), sifsTimer(nullptr), rxAckTimer(nullptr)
-        , freqTimer(nullptr), freqAllocTimer(nullptr)
+        , freqTimer(nullptr), freqAllocTimer(nullptr), balanceTimeout(nullptr)
         , macState(IDLE_1)
         , status(STATUS_OK)
         , radio(nullptr)
@@ -157,7 +157,7 @@ class INET_API Ieee802154MacFreq : public MacProtocolBase, public IMacProtocol
 
     /** @name Pointer for timer messages.*/
     /*@{*/
-    cMessage *backoffTimer, *ccaTimer, *sifsTimer, *rxAckTimer, *freqTimer, *freqAllocTimer, *msgRadioChannel;
+    cMessage *backoffTimer, *ccaTimer, *sifsTimer, *rxAckTimer, *freqTimer, *freqAllocTimer, *balanceTimeout, *msgRadioChannel;
     /*@}*/
 
     /** @brief MAC state machine events.
@@ -304,6 +304,9 @@ class INET_API Ieee802154MacFreq : public MacProtocolBase, public IMacProtocol
     /** @brief The number of times TIMER_ALLOC overflow .*/
     int countAlloc;
 
+    /** @brief The number of times TIMER_ALLOC overflow .*/
+    int countBalanceRcvd;
+
     /** @brief The number of freq broadcast received.*/
     int countTimeoutAlloc;
 
@@ -313,12 +316,17 @@ class INET_API Ieee802154MacFreq : public MacProtocolBase, public IMacProtocol
     /** @brief The number of maximum frequency broadcast.*/
     int maxFreqMsgcnt;
 
+    /** @brief The number of maximum balance broadcast.*/
+    int maxBalanceCnt;
+
     /** @brief stores if last broadcast msg was freq msg. */
     bool bWasFreq;
 
     /** @brief indicates that near devices already informed their frequency */
     bool allocationDone;
 
+    /** @brief indicates that channel balancing was performed */
+    bool balanceDone;
 
     /** @brief indicates that now radio can return to receiving channel */
     bool returnToRxCh;
@@ -328,6 +336,9 @@ class INET_API Ieee802154MacFreq : public MacProtocolBase, public IMacProtocol
 
     /** @brief it is first frequency message sent */
     int freqMsgcnt;
+
+    /** @brief count of balanceMsg sent (its freqMsg, but with new channel) */
+    int balanceMsgCnt;
 
   protected:
     /** @brief Generate new interface address*/
@@ -359,7 +370,7 @@ class INET_API Ieee802154MacFreq : public MacProtocolBase, public IMacProtocol
     void freqInitialize();
 
     /**@brief Searches for devices at the same channel and tries to balance channel load */
-    void freqAllocationInit();
+    void freqAllocationBalance();
 
     void changeRadioChannel(uint8_t newChannel);
 
@@ -381,6 +392,15 @@ class INET_API Ieee802154MacFreq : public MacProtocolBase, public IMacProtocol
     };
 
     std::vector<NeighborInfo> neighbourList;
+
+    /** @brief counts the number of devices per channel */
+    std::vector<int> devicePerChannelCnt;
+
+    /** @brief the total number of channels of the protocol (16: 11 to 26) */
+    int nbChannels;
+
+    /** @brief the offset number of the first channel (11) */
+    int channelOffset;
 
     //sequence number for sending, map for the general case with more senders
     //also in initialization phase multiple potential parents
