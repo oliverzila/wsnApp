@@ -108,7 +108,8 @@ void Ieee802154MacFreq::initialize(int stage)
         sifsTimer = new cMessage("timer-sifs");
         rxAckTimer = new cMessage("timer-rxAck");
         freqTimer = new cMessage("timer-startFreq"); //timer to start the frequency choice phase
-        freqAllocTimer = new cMessage("timer-AllocFreq"); // timer to call freqAllocationInit
+        freqAllocTimer = new cMessage("timer-AllocFreq"); // timer to freq alloc timeout
+        balanceTimeout = new cMessage("timer-BalanceTimeout");
         macState = IDLE_1;
         txAttempts = 0;
         txQueue = check_and_cast<queueing::IPacketQueue *>(getSubmodule("queue"));
@@ -149,13 +150,20 @@ void Ieee802154MacFreq::initialize(int stage)
 
         bWasFreq = false;
         allocationDone = false;
+        balanceDone = false;
         returnToRxCh = false;
         countAlloc = 0;
+        countBalanceRcvd = 0;
         countTimeoutAlloc = 0;
         maxAllocBroadcast = 3;
         maxFreqMsgcnt = 3;
+        maxBalanceCnt = 3;
         freqTimerFirstTime = true;
         freqMsgcnt = 0;
+        balanceMsgCnt = 0;
+        nbChannels = 16;
+        devicePerChannelCnt.resize(nbChannels);
+        channelOffset = 11;
         // End of Change center frequency to initial channel
 
         EV_DETAIL << " bitrate = " << bitrate
@@ -205,6 +213,10 @@ void Ieee802154MacFreq::encapsulateAndSendFrequencyMessage(Packet *packet, uint8
     {
         scheduleAt(simTime() + macFreqAllocWaitDuration*uniform(2.0,4.0) + rxSetupTime, freqTimer);
         freqMsgcnt++;
+    }else if(!balanceDone)
+    {
+        scheduleAt(simTime() + macFreqAllocWaitDuration*uniform(2.0,4.0) + rxSetupTime, freqTimer);
+        balanceMsgCnt++;
     }
 
 
@@ -238,6 +250,7 @@ Ieee802154MacFreq::~Ieee802154MacFreq()
     cancelAndDelete(rxAckTimer);
     cancelAndDelete(freqTimer);
     cancelAndDelete(freqAllocTimer);
+    cancelAndDelete(balanceTimeout);
     if (msgRadioChannel)
         delete msgRadioChannel;
     if (ackMessage)
@@ -390,7 +403,7 @@ void Ieee802154MacFreq::updateStatusBackoff(t_mac_event event, cMessage *msg)
             startTimer(TIMER_CCA);
             updateMacState(CCA_3);
             // TODO maybe the channel should be changed here
-            if(allocationDone){
+            if(balanceDone){  //alocationDone
                 if (currentTxFrame == nullptr)
                     popTxQueue();
                 for (auto it = neighbourList.begin(); it != neighbourList.end(); it++){
@@ -836,7 +849,7 @@ void Ieee802154MacFreq::manageQueue()
     else {
         EV_DETAIL << "(manageQueue) no packets to send, entering IDLE state." << endl;
         //returnToRxCh = true;
-        if(allocationDone){
+        if(balanceDone){ //allocationDone
             changeRadioChannel(frequencyChannel);
             EV_DETAIL << "(manageQueue) Returned to Rx channel" << endl;
         }
@@ -886,9 +899,14 @@ void Ieee802154MacFreq::startTimer(t_mac_timer timer)
         scheduleAt(simTime() + intuniform(2,40)*0.025, freqTimer);
     }
     else if (timer == TIMER_ALLOC){
-       scheduleAt(simTime() + 0.975, freqAllocTimer);
+        EV_DETAIL << "(startTimer) TIMER_ALLOC - balanceTimeout scheduled" << endl;
+       if(allocationDone)
+           scheduleAt(simTime() + 0.3, balanceTimeout);
+       else
+           scheduleAt(simTime() + 0.975, freqAllocTimer);
        // scheduleAt(simTime() + macFreqAllocWaitDuration, freqAllocTimer);
-    }else{
+    }
+    else{
         EV << "Unknown timer requested to start:" << timer << endl;
     }
 }
@@ -970,6 +988,15 @@ void Ieee802154MacFreq::handleSelfMessage(cMessage *msg)
                 encapsulateAndSendFrequencyMessage(freqMessage, frequencyChannel, "freqMsg", "FREQ-MSG");
             }
 
+        }else if(!balanceDone){
+            if(balanceMsgCnt>maxBalanceCnt){
+                if (balanceTimeout->isScheduled())
+                    cancelEvent(balanceTimeout);
+                startTimer(TIMER_ALLOC);
+            }else{
+                EV_DETAIL << "Not done balancing" << endl;
+                encapsulateAndSendFrequencyMessage(freqMessage, frequencyChannel, "freqMsg", "FREQ-MSG");
+            }
         }
 
     }
@@ -994,11 +1021,30 @@ void Ieee802154MacFreq::handleSelfMessage(cMessage *msg)
                         cancelEvent(freqTimer);
                     EV_DETAIL << "Number of neighbors detected: " << neighbourList.size() << ",  at time: " << simTime();
                     EV_DETAIL << ", freqMsgcnt: " << freqMsgcnt << ", countAlloc: " << countAlloc << ", freqMsg received: " << countTimeoutAlloc << endl;
-                    changeRadioChannel(frequencyChannel);
+                    //changeRadioChannel(frequencyChannel);
                 }
             }
+            if(allocationDone && !balanceDone){
+                EV_DETAIL << "Quantas vezes chama isso aqui?" << endl;
+                freqAllocationBalance();
+            }
 
+    }
+    else if (msg == balanceTimeout){
+        if(freqTimer->isScheduled())
+                            cancelEvent(freqTimer);
+        EV_DETAIL << "Frequency balance phase finished at time: " << simTime();
+        EV_DETAIL << ", countBalanceRcvd: " << countBalanceRcvd << ", balanceMsgCnt: " << balanceMsgCnt << endl;
+        EV_DETAIL << "Moving to balanced channel: " << (int)frequencyChannel << endl;
+        balanceDone = true;
 
+        EV_DETAIL << "My mac: " << interfaceEntry->getMacAddress() << ", ch: " << (int)frequencyChannel << " List: ";
+        for (auto it = neighbourList.begin(); it != neighbourList.end(); it++){
+            EV_DETAIL << " - mac: " << it->macAddr << ", ch: " << (int)it->frequencyChannel;
+        }
+        EV_DETAIL << endl;
+
+        changeRadioChannel(frequencyChannel);
     }
     else
         EV << "CSMA Error: unknown timer fired:" << msg << endl;
@@ -1135,9 +1181,46 @@ void Ieee802154MacFreq::receiveSignal(cComponent *source, simsignal_t signalID, 
     }
 }
 
-void Ieee802154MacFreq::freqAllocationInit()
+void Ieee802154MacFreq::freqAllocationBalance()
 {
-// TODO implement *-* (fazer balanceamento do uso dos canais
+    // TODO implement *-* (fazer balanceamento do uso dos canais
+
+    int numberNeighbours = neighbourList.size();
+    int balanceNumber = numberNeighbours % nbChannels != 0 ? (numberNeighbours+1)/nbChannels+1 : (numberNeighbours+1)/nbChannels;
+    int myOrder = 0;
+    EV_DETAIL << "time to balance. BalanceNumber: " << balanceNumber << " # at mine: " << devicePerChannelCnt[frequencyChannel-channelOffset]+1;
+    EV_DETAIL << ", and time is: " << simTime() << endl;
+    // looks at all devices in the same frequency channel
+    if(devicePerChannelCnt[frequencyChannel-channelOffset]+1>balanceNumber){
+        MacAddress myMac = interfaceEntry->getMacAddress();
+        for (auto it = neighbourList.begin(); it != neighbourList.end(); it++){
+                if(it->frequencyChannel == frequencyChannel){
+                    EV_DETAIL << "Getting up to if(myMac > it->macAddr):" << endl;
+                    if(myMac.compareTo(it->macAddr)==1){
+                        EV_DETAIL << "OPA" << endl;
+                        myOrder++;
+                    }
+                }
+        }
+        EV_DETAIL << "time to balance. my order: " << myOrder << endl;
+        // if the mac address is one of the greatest, will have to choose another channel
+        if(myOrder >= balanceNumber){
+            uint8_t previousChannel = frequencyChannel;
+            EV_DETAIL << "time to balance. Ok, I must change channel" << endl;
+            do{
+                frequencyChannel = intuniform(11,26);
+                EV_DETAIL << "Choosing new channel: " << (int)frequencyChannel << ", previous: " << (int)previousChannel << endl;
+            }while(frequencyChannel==previousChannel || devicePerChannelCnt[frequencyChannel-channelOffset]+1>balanceNumber); // TODO this cannot include channels above the count
+            scheduleAt(simTime() + 0.1 + macFreqAllocWaitDuration*uniform(2.0,4.0) + rxSetupTime, freqTimer);
+            balanceMsgCnt++;
+            //encapsulateAndSendFrequencyMessage(freqMessage, frequencyChannel, "freqMsg", "FREQ-MSG");
+        }else{
+            // just wait for the timeout
+            startTimer(TIMER_ALLOC);
+        }
+    }
+
+
 }
 
 void Ieee802154MacFreq::addNeighborInfo(Packet *packet)
@@ -1157,9 +1240,13 @@ void Ieee802154MacFreq::addNeighborInfo(Packet *packet)
 
     for (auto it = neighbourList.begin(); it != neighbourList.end(); it++){
         if(it->macAddr == macAddr){     // device already in the list, just update info
+            EV_DETAIL << "Updating neighbor info" << endl;
+            // decreases the count of devices in the previous frequency channel
+            devicePerChannelCnt[it->frequencyChannel-channelOffset]-=1;
             it->frequencyChannel = freq;
             it->frequencyRadio = 2405 + 5 * (freq -11);
             existingDevice = true;
+
         }
     }
 
@@ -1170,6 +1257,12 @@ void Ieee802154MacFreq::addNeighborInfo(Packet *packet)
         addNeighborInfo.frequencyRadio = 2405 + 5 * (freq -11);
         neighbourList.push_back(addNeighborInfo);
     }
+
+    // increase the count of devices at channel freq
+    devicePerChannelCnt[freq-channelOffset]+=1;
+
+    for(int i=0;i<devicePerChannelCnt.size();i++)
+        EV_DETAIL << "Dispositivos por canal: " << devicePerChannelCnt[i] << ", " << endl;
 }
 
 void Ieee802154MacFreq::decapsulate(Packet *packet)
@@ -1178,8 +1271,12 @@ void Ieee802154MacFreq::decapsulate(Packet *packet)
     if (strcmp(packet->getName(),"freqMsg")==0){  // Message name: freqMsg
         if (freqAllocTimer->isScheduled())
             cancelEvent(freqAllocTimer);
+        if (balanceTimeout->isScheduled())
+            cancelEvent(balanceTimeout);
         EV_DETAIL << "TIMER ALLOC reset" << endl;
         countAlloc++;
+        if(allocationDone)
+            countBalanceRcvd++;
         startTimer(TIMER_ALLOC);
         addNeighborInfo(packet);
         executeMac(EV_FREQ_MSG, packet);
