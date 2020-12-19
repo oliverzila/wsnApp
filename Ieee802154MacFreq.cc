@@ -1186,7 +1186,7 @@ void Ieee802154MacFreq::freqAllocationBalance()
     // TODO implement *-* (fazer balanceamento do uso dos canais
 
     int numberNeighbours = neighbourList.size();
-    int balanceNumber = numberNeighbours % nbChannels != 0 ? (numberNeighbours+1)/nbChannels+1 : (numberNeighbours+1)/nbChannels;
+    int balanceNumber = (numberNeighbours+1) % nbChannels != 0 ? (numberNeighbours+1)/nbChannels+1 : (numberNeighbours+1)/nbChannels;
     int myOrder = 0;
     EV_DETAIL << "time to balance. BalanceNumber: " << balanceNumber << " # at mine: " << devicePerChannelCnt[frequencyChannel-channelOffset]+1;
     EV_DETAIL << ", and time is: " << simTime() << endl;
@@ -1218,7 +1218,8 @@ void Ieee802154MacFreq::freqAllocationBalance()
             // just wait for the timeout
             startTimer(TIMER_ALLOC);
         }
-    }
+    }else
+        startTimer(TIMER_ALLOC);
 
 
 }
